@@ -1,0 +1,8 @@
+hydra-core
+ninja
+ring-flash-attn==0.1.4
+torch
+tqdm
+transformers==4.51.2
+vllm==0.8.2
+wandb
