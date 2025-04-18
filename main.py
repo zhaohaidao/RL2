@@ -11,7 +11,6 @@ from data import RLDataset
 from workers.actor import Actor
 from workers.critic import Critic
 from algs import (
-    compute_kl_term,
     compute_gae,
     compute_reinforce_adv
 )
@@ -72,21 +71,6 @@ class Trainer:
         )
 
         return sampler, dataloader
-
-    def add_kl_term_to_rewards(self, data_list, step):
-
-        total_actions = sum([ex["action_mask"] for ex in data_list])
-        kl = 0
-        for ex in data_list:
-            kl_term = compute_kl_term(ex, self.config.actor.kl.level, self.config.kl.estimator)
-            ex["rewards"] -= self.config.actor.kl.coef * kl_term
-            kl += kl_term.sum().item()
-        kl /= (
-            total_actions
-            if self.config.actor.kl.level == "token"
-            else len(data_list)
-        )
-        wandb.log({"kl": kl}, step=step)
     
     def compute_advantages(self, data_list: List[Dict[str, torch.Tensor]]):
 
@@ -122,9 +106,6 @@ class Trainer:
                 data_list = self.actor.compute_logps(data_list, step)
                 if self.config.actor.kl.coef > 0:
                     data_list = self.ref_actor.compute_logps(data_list, step)
-                
-                if self.config.actor.kl.coef > 0 and self.config.actor.kl.type == "reward" and self.device_mesh.get_rank() == 0:
-                    self.add_kl_term_to_rewards(data_list, step)
 
                 if self.config.adv.estimator == "gae":
                     data_list = self.critic.compute_values(data_list, step)

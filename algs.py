@@ -1,48 +1,15 @@
 from typing import List, Dict
 import torch
 
-def accumulate_to_eos(
-    value: torch.Tensor,
-    eos_mask: torch.Tensor
-) -> torch.Tensor:
-    # Example:
-    #   - value: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    #   - eos_mask: [0, 0, 1, 0, 1, 0, 1]
-    #   - output: [0.0, 0.0, 0.6, 0.0, 0.9, 0.0, 1.3]
-    
-    end_indices = torch.where(eos_mask)[1]
-    start_indices = torch.cat((
-        torch.LongTensor([0]).to(end_indices.device),
-        end_indices[:-1] + 1
-    ))
-
-    result = torch.zeros_like(value)
-    for start_idx, end_idx in zip(start_indices, end_indices):
-        result[0, end_idx] = value[0, start_idx:end_idx + 1].sum()
-    return result
-
 def compute_kl_term(
-    minibatch: Dict[str, torch.Tensor],
-    kl_level: str,
+    logps: torch.Tensor,
+    ref_logps: torch.Tensor,
     kl_estimator: str
 ) -> torch.Tensor:
     # The (ref_)logps of non-action tokens are zero (see `Actor.
     # forward`), so their corresponding kl_term will also be zero.
-    
-    if kl_level == "token":
-        old_logps = minibatch["old_logps"]
-        ref_logps = minibatch["ref_logps"]
-    elif kl_level == "sequence":
-        old_logps = accumulate_to_eos(
-            minibatch["old_logps"], minibatch["eos_mask"]
-        )
-        ref_logps = accumulate_to_eos(
-            minibatch["ref_logps"], minibatch["eos_mask"]
-        )
-    else:
-        raise NotImplementedError
 
-    logp_diffs = old_logps - ref_logps
+    logp_diffs = logps - ref_logps
     if kl_estimator == "k1":
         return logp_diffs
     elif kl_estimator == "k2":

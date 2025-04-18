@@ -29,13 +29,12 @@ actor:
   kl:
     coef: 0.0
     type: null # `reward` or `loss`
-    level: null # `token` or `sequence`
     estimator: null # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
-    # These three hyper-paratemers are mutually orthogonal, so 
-    # there are 2 * 2 * 3 = 12 possible combinations.
+    # These two hyper-paratemers are orthogonal, so 
+    # there are 6 possible combinations.
     # Two typical choices are
-    #   - OpenAI PPO: type=reward, level=token, estimator=k1
-    #   - DeepSeek GRPO: type=loss, level=sequence, estimator=k3
+    #   - OpenAI PPO: type=reward, estimator=k1
+    #   - DeepSeek GRPO: type=loss, estimator=k3
 
 critic:
   model_name: Qwen/Qwen2.5-7B

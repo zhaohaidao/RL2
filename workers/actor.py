@@ -9,10 +9,7 @@ from vllm import LLM, SamplingParams
 from tqdm import tqdm
 from workers.base import Worker
 from algs import compute_kl_term
-from utils.ring_attn import (
-    update_params_of_ring_attn,
-    ring_attn_all_gather
-)
+from utils.ring_attn import update_params_of_ring_attn
 from utils.comm import gather_and_concat_list, sum_across_processes
 
 
@@ -181,13 +178,30 @@ class Actor(Worker):
         minibatches = self.scatter_and_pack_data_list(data_list, False)
 
         prefix = "old" if self.train else "ref"
+
+        total_actions = sum_across_processes(
+            sum([minibatch["action_mask"].sum() for minibatch in minibatches])
+        )
         
         self.model.eval()
+        metrics = defaultdict(list)
         for minibatch in (
             tqdm(minibatches, desc=f"Step {step + 1}, compute {prefix} logps")
             if self.device_mesh.get_rank() == 0 else minibatches
         ):
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
+
+            if not self.train and self.config.kl.type == "reward":
+                kl_term = compute_kl_term(
+                    minibatch["old_logps"],
+                    minibatch["ref_logps"],
+                    self.config.kl.estimator
+                )
+                minibatch["rewards"] -= self.config.kl.coef * kl_term
+                kl = kl_term.sum() / total_actions
+                metrics["kl"].append(self.device_mesh.size() * len(minibatches) * kl.item())
+
+        self.log(metrics, step)
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
@@ -205,9 +219,6 @@ class Actor(Worker):
             
             total_actions = sum_across_processes(
                 sum([minibatch["action_mask"].sum() for minibatch in batch])
-            )
-            total_trajectories = sum_across_processes(
-                sum([minibatch["eos_mask"].sum() for minibatch in batch])
             )
             
             for minibatch in batch:
@@ -233,23 +244,11 @@ class Actor(Worker):
                 metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":
-                    
-                    minibatch["old_logps"] = logps
-                    if self.config.kl.level == "sequence":
-                        minibatch = ring_attn_all_gather(
-                            minibatch, self.sp_device_mesh["sp"]
-                        )
-
                     kl = compute_kl_term(
-                        minibatch, self.config.kl.level,
-                        self.config.kl.estimator
-                    ).sum() / (
-                        total_actions
-                        if self.config.kl.level == "token"
-                        else total_trajectories
-                    )
-                    metrics["kl"].append(len(batch) * kl.item())
+                        logps, minibatch["ref_logps"], self.config.kl.estimator
+                    ).sum() / total_actions
                     loss = loss + self.config.kl.coef * kl
+                    metrics["kl"].append(self.device_mesh.size() * len(batch) * kl.item())
 
                 loss.backward() 
                 if self.device_mesh.get_rank() == 0:
