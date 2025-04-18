@@ -9,7 +9,7 @@ Due to the SPMD design and absence of parallel computing, the training is launch
 
 ## Acknowledgement
 
-This project cannot be done without [veRL](https://github.com/volcengine/verl) and [RingFlashAttention](https://github.com/zhuzilin/ring-flash-attention).
+This project cannot be done without [DeepSpeedChat](https://github.com/deepspeedai/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [veRL](https://github.com/volcengine/verl), and [RingFlashAttention](https://github.com/zhuzilin/ring-flash-attention).
 
 ## Citation
 ```
