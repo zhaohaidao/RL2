@@ -124,7 +124,7 @@ class Trainer:
                         self.actor.rollout(data_list, False, step)
                     
                 if step % self.config.trainer.save_freq == 0:
-                    path = f"{self.config.trainer.save_dir}/{self.config.experiment_name}/{step}"
+                    path = f"{self.config.trainer.save_dir}/{self.config.trainer.experiment_name}/{step}"
                     self.tokenizer.save_pretrained(path)
                     self.actor.save(path)
 
