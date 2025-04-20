@@ -106,6 +106,7 @@ class Actor(Worker):
 
         if train:
             # If test, llm will soon be called again. See `Trainer.train`.
+            # Level 2 sleep will discard both the model weights and the kv cache, since the model will be updated at each step for training.
             self.llm.sleep(level=2)
 
         data_list = [
