@@ -4,6 +4,9 @@ from collections import defaultdict
 import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import (
+    StateDictType, ShardedStateDictConfig
+)
 from transformers import AutoModelForCausalLM
 from vllm import LLM, SamplingParams
 from tqdm import tqdm
@@ -54,6 +57,12 @@ class Actor(Worker):
 
     def prepare_inference_engine(self):
 
+        FSDP.set_state_dict_type(
+            self.model,
+            state_dict_type=StateDictType.SHARDED_STATE_DICT,
+            state_dict_config=ShardedStateDictConfig()
+        )
+
         self.rollout_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("dp", "tp"),
@@ -97,7 +106,7 @@ class Actor(Worker):
 
         if train:
             # If test, llm will soon be called again. See `Trainer.train`.
-            self.llm.sleep()
+            self.llm.sleep(level=2)
 
         data_list = [
             {
@@ -262,11 +271,12 @@ class Actor(Worker):
         self.log(metrics, step)
 
         self.offload_optimizer_to_cpu()
-        with FSDP.summon_full_params(self.model, offload_to_cpu=True):
-            state_dict = self.model.state_dict()
+        state_dict = self.model.state_dict()
         self.offload_model_to_cpu()
-        # offload params here, or params cannot be summoned
+        # offload params here, or state_dict cannot be accessed
         torch.cuda.empty_cache() # or llm.wake_up() will OOM
         self.llm.wake_up() # load inference engine to GPU
-        model = self.llm.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        model.load_weights(((name, param) for name, param in state_dict.items()))
+        self.llm.llm_engine.model_executor.driver_worker.worker.model_runner.model.load_weights((
+            (name, param.full_tensor())
+            for name, param in state_dict.items()
+        ))
