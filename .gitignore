@@ -123,6 +123,7 @@ dmypy.json
 Thumbs.db
 ehthumbs.db
 
+ckpts/
 outputs/
 wandb/
 core-*
