@@ -400,4 +400,5 @@ class Worker:
         ):
             if self.device_mesh.get_rank() == 0:
                 self.model.save_pretrained(path)
+            dist.barrier()
         self.offload_model_to_cpu()
