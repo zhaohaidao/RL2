@@ -87,15 +87,70 @@ class Worker:
         data_list: Optional[List[Dict[str, torch.Tensor]]],
         train: bool
     ) -> Union[List[List[Dict[str, torch.Tensor]]], List[Dict[str, torch.Tensor]]]:
+        """
+        Distributes data across devices in a distributed training/inference setup with data parallelism and sequence parallelism.
+        
+        The distribution process works as follows:
+        1. On rank 0: Partition the full dataset into balanced chunks based on sequence lengths
+        2. Scatter these chunks to all processes across the device mesh (data parallelism dimension)
+        3. Each process applies sequence parallelism by:
+           - Padding sequences to required dimensions
+           - Zigzag partitioning sequences across SP dimension for load balancing
+           - Ensuring each SP rank processes different parts of the same sequences
+        4. For training, further group minibatches into update batches
+        
+        Args:
+            data_list: List of trajectory dictionaries (only populated on rank 0)
+            train: Whether we're in training mode (affects batching)
+            
+        Returns:
+            In training mode: List of lists of minibatches grouped by update step
+            In inference mode: List of minibatches
+        """
+        
+        # 1. Partition data on rank 0 and scatter to all processes
+        # - Rank 0 divides data into balanced chunks based on sequence length
+        # - Each process receives its assigned chunk via scatter operation
+        partitioned_data = self._partition_and_scatter_data(data_list, train)
+        
+        # 2. Pack trajectories into minibatches with proper padding
+        # - Each process pads its trajectories to required dimensions
+        # - Applies zigzag partitioning for load balancing across SP dimension
+        # - Concatenates trajectories into minibatches with sequence length tracking
+        minibatches = self._pack_trajectories(partitioned_data)
+        
+        # 3. Group minibatches into batches if in training mode
+        # - For training: organize minibatches into update groups
+        # - For inference: return minibatches directly
+        if train:
+            return self._group_minibatches_for_training(minibatches)
+        else:
+            return minibatches
 
+    def _partition_and_scatter_data(
+        self, 
+        data_list: Optional[List[Dict[str, torch.Tensor]]], 
+        train: bool
+    ) -> List[List[Dict[str, torch.Tensor]]]:
+        """
+        Partition data on rank 0 and scatter to all processes.
+
+        Args:
+            data_list: List of trajectory dictionaries (only populated on rank 0)
+            train: Whether we're in training mode (affects batching)
+            
+        Returns:
+            List of lists of minibatches grouped by update step
+        """
         if self.device_mesh.get_rank() == 0:
-
+            # Calculate sequence lengths and required minibatches
             seq_len_list = [ex["states"].shape[-1] for ex in data_list]
             n_minibatches = math.ceil(
                 sum(seq_len_list) / (
                     self.config.max_length_per_device * self.sp_device_mesh["sp"].size()
                 )
             )
+            
             # At least n_minibatches minibatches are needed.
             # Every dp should has identical number of 
             # minibatches, thus the total number of minibatches 
@@ -108,39 +163,50 @@ class Worker:
             if n_minibatches % multiple_of != 0:
                 n_minibatches += (multiple_of - n_minibatches % multiple_of)
             
-            partitions: List[List[int]] = get_seqlen_balanced_partitions(
+            # Create balanced partitions
+            partitions = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )
-            self.shuffle_indices: List[int] = sum(partitions, [])
+            self.shuffle_indices = sum(partitions, [])
             # Cache this for `resume_and_gather_data_list`.
             data_lists: List[List[Dict[str, torch.Tensor]]] = [
                 [data_list[p] for p in partition]
                 for partition in partitions
             ] # Trajectories within an inner list will be packed into a minibatch.
+            
+            # Distribute minibatches across processes
             n_minibatches_per_process = n_minibatches // self.sp_device_mesh["dp"].size()
-            data_lists: List[List[List[Dict[str, torch.Tensor]]]] = [
+            data_lists = [
                 data_lists[rank * n_minibatches_per_process:(rank + 1) * n_minibatches_per_process]
-                for rank in range(
-                    self.sp_device_mesh["dp"].size()
-                )
-                for _ in range(
-                    self.sp_device_mesh["sp"].size()
-                ) # The n-th list contains data lists for rank n.
+                for rank in range(self.sp_device_mesh["dp"].size())
+                for _ in range(self.sp_device_mesh["sp"].size())
+                # The n-th list contains data lists for rank n.
             ]
-        
         else:
             data_lists = [None for _ in range(self.device_mesh.size())]
-            
+        
+        # Scatter data to all processes
         data_list = [None]
         dist.scatter_object_list(data_list, data_lists, src=0)
-        data_list: List[List[Dict[str, torch.Tensor]]] = data_list[0]
-        # Next we pack trajectories within the inner lists into minibatch.
+        return data_list[0]
 
+    def _pack_trajectories(self, data_list: List[List[Dict[str, torch.Tensor]]]) -> List[Dict[str, torch.Tensor]]:
+        """
+        Packs trajectories into minibatches with proper padding. This packing is mainly for the purpose for
+        sequence parallelism.
+
+        Args:
+            data_list: List of lists of trajectory dictionaries
+            
+        Returns:
+            List of minibatches
+        """
         multiple_of = 2 * self.sp_device_mesh["sp"].size()
         rank = self.sp_device_mesh["sp"].get_local_rank()
-        minibatches: List[Dict[str, torch.Tensor]] = []
+        minibatches = []
+        
         for data in data_list:
-            minibatch: Dict[str, torch.Tensor] = {}
+            minibatch = {}
             for k in data[0].keys():
                 tensors = []
                 for ex in data:
@@ -151,47 +217,124 @@ class Worker:
                     # world_size and each rank sequentially get 
                     # the head and tail.
                     # See https://zhuanlan.zhihu.com/p/683714620.
-                    if tensor.shape[-1] % multiple_of != 0:
-                        padding_tokens = multiple_of - tensor.shape[-1] % multiple_of
-                        tensor = torch.cat(
-                            (tensor, torch.zeros((1, padding_tokens), dtype=tensor.dtype)),
-                        -1)
-                    half_seqlen = tensor.shape[-1] // multiple_of
-                    tensor = torch.cat((
-                        tensor[:, rank * half_seqlen:(rank + 1) * half_seqlen],
-                        tensor[:, (multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
-                    ), -1)
+                    tensor = self._pad_and_partition_tensor(tensor, multiple_of, rank)
                     tensors.append(tensor)
                 minibatch[k] = torch.cat(tensors, -1).to(torch.cuda.current_device())
-            seqlens = torch.IntTensor(
-                [tensor.shape[-1] for tensor in tensors]
-            )
+            
+            # Create cumulative sequence lengths
+            seqlens = torch.IntTensor([tensor.shape[-1] for tensor in tensors])
             minibatch["cu_seqlens"] = torch.cumsum(
                 torch.cat((torch.IntTensor([0]), seqlens)),
                 0, dtype=torch.int32
             ).to(torch.cuda.current_device())
             # Required by `update_params_of_ring_attn`.
             minibatches.append(minibatch)
+        
+        return minibatches
 
-        if train:
-            # Group minibatches into batches.
-            n_minibatches_per_update = len(minibatches) // self.config.update_per_rollout
-            return [
-                minibatches[update * n_minibatches_per_update:(update + 1) * n_minibatches_per_update]
-                for update in range(self.config.update_per_rollout)
-            ]
-        else:
-            return minibatches
-    
+    def _pad_and_partition_tensor(self, tensor, multiple_of, rank):
+        """
+        Pads and partitions a tensor for sequence parallelism.
+        
+        Zigzag ring attention requires a specific data layout for efficient load balancing:
+        
+        +---------------------------------------------------------------+
+        | GPU 0    | GPU 1    | GPU 2    | GPU 3    | ... | GPU N-1    |
+        +---------------------------------------------------------------+
+        | Block 0  | Block 1  | Block 2  | Block 3  | ... | Block N-1  |
+        | Block 2N-1| Block 2N-2| Block 2N-3| Block 2N-4| ... | Block N  |
+        +---------------------------------------------------------------+
+        
+        For example, with 4 GPUs (N=4), the block distribution would be:
+        +-------------------------------------------+
+        | GPU 0  | GPU 1  | GPU 2  | GPU 3  |
+        +-------------------------------------------+
+        | Block 0| Block 1| Block 2| Block 3|
+        | Block 7| Block 6| Block 5| Block 4|
+        +-------------------------------------------+
+        
+        Each rank processes two chunks:
+        - One from the first half (at position equal to rank)
+        - One from the second half (at position determined by (multiple_of - rank - 1))
+        
+        Args:
+            tensor: Input tensor to pad and partition
+            multiple_of: The multiple of the sequence length
+            rank: The rank of the current process
+            
+        Returns:
+            Padded and partitioned tensor
+        """
+        # Add padding if needed
+        if tensor.shape[-1] % multiple_of != 0:
+            padding_tokens = multiple_of - tensor.shape[-1] % multiple_of
+            tensor = torch.cat(
+                (tensor, torch.zeros((1, padding_tokens), dtype=tensor.dtype)),
+            -1)
+        
+        # Zigzag partitioning for load balancing
+        half_seqlen = tensor.shape[-1] // multiple_of
+        return torch.cat((
+            tensor[:, rank * half_seqlen:(rank + 1) * half_seqlen],
+            tensor[:, (multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
+        ), -1)
+
+    def _group_minibatches_for_training(self, minibatches):
+        """
+        Groups minibatches into batches for training.
+
+        Args:
+            minibatches: List of minibatches
+        
+        Returns:
+            List of batches
+        """
+        # Group minibatches into batches for training
+        n_minibatches_per_update = len(minibatches) // self.config.update_per_rollout
+        return [
+            minibatches[update * n_minibatches_per_update:(update + 1) * n_minibatches_per_update]
+            for update in range(self.config.update_per_rollout)
+        ]
+
     def resume_and_gather_data_list(
         self,
         minibatches: List[Dict[str, torch.Tensor]]
     ) -> Optional[List[Dict[str, torch.Tensor]]]:
+        """
+        After model forward pass, reconstructs individual examples from minibatches and gathers them on rank 0.
+        Sequence parallelism reorders the minibatches, so we need to gather and reorder them back.
 
-        data_list: List[Dict[str, torch.Tensor]] = []
+        Args:
+            minibatches: List of minibatches
+        
+        Returns:
+            List of individual examples
+        """
+        # Step 1: Reconstruct individual examples from minibatches
+        data_list = self._reconstruct_examples(minibatches)
+        
+        # Step 2: Gather and reorder data on rank 0
+        return self._gather_and_reorder_data(data_list)
+
+    def _reconstruct_examples(self, minibatches):
+        """
+        Reconstructs individual examples from minibatches and gathers them on rank 0.
+
+        Args:
+            minibatches: List of minibatches
+        
+        Returns:
+            List of individual examples
+        """
+        data_list = []
         for minibatch in minibatches:
+            # Scale sequence lengths for all-gather
             cu_seqlens = self.sp_device_mesh["sp"].size() * minibatch["cu_seqlens"]
+            
+            # Gather data from all devices in the SP dimension
             minibatch = ring_attn_all_gather(minibatch, self.sp_device_mesh["sp"])
+            
+            # Extract individual examples
             for start_idx, end_idx in zip(cu_seqlens[:-1], cu_seqlens[1:]):
                 unpad_end_idx = torch.where(
                     minibatch["eos_mask"][:, start_idx:end_idx]
@@ -200,15 +343,20 @@ class Worker:
                     k: v[:, start_idx:start_idx + unpad_end_idx + 1].to("cpu")
                     for k, v in minibatch.items()
                 })
+        
+        return data_list
 
+    def _gather_and_reorder_data(self, data_list):
+        # Gather data across DP dimension if on SP rank 0
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
             shuffled_data_list = gather_and_concat_list(data_list, self.sp_device_mesh["dp"])
-
+        
+        # Reorder data on global rank 0
         if self.device_mesh.get_rank() == 0:
-            data_list = [None for _ in range(len(shuffled_data_list))]
+            result = [None for _ in range(len(shuffled_data_list))]
             for idx, data in zip(self.shuffle_indices, shuffled_data_list):
-                data_list[idx] = data
-            return data_list
+                result[idx] = data
+            return result
         else:
             return None
 
