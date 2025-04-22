@@ -15,7 +15,6 @@ from utils.fsdp import (
     load_fsdp_optimizer
 )
 from utils.seqlen_balance import get_seqlen_balanced_partitions
-from utils.ring_attn import ring_attn_all_gather
 from utils.comm import gather_and_concat_list
         
 
@@ -328,21 +327,38 @@ class Worker:
         """
         data_list = []
         for minibatch in minibatches:
-            # Scale sequence lengths for all-gather
-            cu_seqlens = self.sp_device_mesh["sp"].size() * minibatch["cu_seqlens"]
-            
-            # Gather data from all devices in the SP dimension
-            minibatch = ring_attn_all_gather(minibatch, self.sp_device_mesh["sp"])
-            
-            # Extract individual examples
+            cu_seqlens = minibatch.pop("cu_seqlens")
             for start_idx, end_idx in zip(cu_seqlens[:-1], cu_seqlens[1:]):
-                unpad_end_idx = torch.where(
-                    minibatch["eos_mask"][:, start_idx:end_idx]
-                )[1][0]
-                data_list.append({
-                    k: v[:, start_idx:start_idx + unpad_end_idx + 1].to("cpu")
-                    for k, v in minibatch.items()
-                })
+                ex = {}
+                for k, v in minibatch.items():
+                    tensor = v[:, start_idx:end_idx]
+                    tensors = [
+                        torch.zeros_like(tensor)
+                        for _ in range(self.sp_device_mesh["sp"].size())
+                    ]
+                    dist.gather(
+                        tensor,
+                        tensors if self.sp_device_mesh["sp"].get_local_rank() == 0 else None,
+                        group=self.sp_device_mesh["sp"].get_group(),
+                        group_dst=0
+                    )
+                    mid_idx = tensor.shape[-1] // 2
+                    inorder_tensors, reversed_tensors = [], []
+                    for tensor in tensors:
+                        inorder_tensors.append(tensor[:, :mid_idx])
+                        reversed_tensors.append(tensor[:, mid_idx:])
+                    ex[k] = torch.cat((
+                        inorder_tensors + reversed_tensors[::-1]
+                    ), -1).to("cpu")
+
+                if self.sp_device_mesh["sp"].get_local_rank() == 0:
+                    length = torch.where(ex["eos_mask"])[1][0].item()
+                    ex = {
+                        k: v[:, :length + 1]
+                        for k, v in ex.items()
+                    }
+                    
+                data_list.append(ex)
         
         return data_list
 
