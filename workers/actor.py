@@ -4,9 +4,7 @@ from collections import defaultdict
 import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import (
-    StateDictType, ShardedStateDictConfig
-)
+from torch.distributed.fsdp.api import StateDictType
 from transformers import AutoModelForCausalLM
 from vllm import LLM, SamplingParams
 from tqdm import tqdm
@@ -56,12 +54,6 @@ class Actor(Worker):
         self.reward_fn = module.reward_fn
 
     def prepare_inference_engine(self):
-
-        FSDP.set_state_dict_type(
-            self.model,
-            state_dict_type=StateDictType.SHARDED_STATE_DICT,
-            state_dict_config=ShardedStateDictConfig()
-        )
 
         self.rollout_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
@@ -269,9 +261,15 @@ class Actor(Worker):
             self.optimizer.zero_grad()
 
         self.log(metrics, step)
+        if (step + 1) % self.config.save_freq == 0:
+            self.save(f"{self.config.save_dir}/step{step + 1}/actor")
 
         self.offload_optimizer_to_cpu()
-        state_dict = self.model.state_dict()
+        with FSDP.state_dict_type(
+            self.model,
+            StateDictType.SHARDED_STATE_DICT
+        ):
+            state_dict = self.model.state_dict()
         self.offload_model_to_cpu()
         # offload params here, or state_dict cannot be accessed
         torch.cuda.empty_cache() # or llm.wake_up() will OOM

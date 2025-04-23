@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Union
+import os
 import math
 import torch
 import torch.distributed as dist
@@ -6,6 +7,7 @@ from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     MixedPrecision
 )
+from torch.distributed.fsdp.api import StateDictType
 import wandb
 from utils.fsdp import (
     get_fsdp_wrap_policy,
@@ -391,7 +393,6 @@ class Worker:
 
     def save(self, path):
 
-        self.load_model_to_gpu()
         with FSDP.summon_full_params(
             self.model,
             offload_to_cpu=True,
@@ -399,6 +400,15 @@ class Worker:
             writeback=False
         ):
             if self.device_mesh.get_rank() == 0:
-                self.model.save_pretrained(path)
+                self.model.save_pretrained(f"{path}/model")
             dist.barrier()
-        self.offload_model_to_cpu()
+
+        os.makedirs(f"{path}/optimizer", exist_ok=True)
+        with FSDP.state_dict_type(
+            self.model,
+            StateDictType.SHARDED_STATE_DICT
+        ):
+            torch.save(
+                self.optimizer.state_dict(),
+                f"{path}/optimizer/rank{self.device_mesh.get_rank()}.pt"
+            )

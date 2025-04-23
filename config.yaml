@@ -16,6 +16,8 @@ actor:
   max_grad_norm: 1.0
   offload_model: true
   offload_optimizer: true
+  save_dir: ckpts/${trainer.experiment_name}
+  save_freq: 32
 
   rollout:
     tp_size: 1
@@ -48,6 +50,8 @@ critic:
   max_grad_norm: 1.0
   offload_model: true
   offload_optimizer: true
+  save_dir: ${actor.save_dir}
+  save_freq: ${actor.save_freq}
 
 adv:
   estimator: reinforce
@@ -60,7 +64,5 @@ trainer:
   experiment_name: qwen2.5-7b
   n_epochs: 1
   test_freq: 8
-  save_freq: 32
-  save_dir: ckpts
   disable_wandb: false
   
