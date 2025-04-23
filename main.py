@@ -122,15 +122,11 @@ class Trainer:
                 if step % self.config.trainer.test_freq == 0:
                     for data_list in self.test_dataloader:
                         self.actor.rollout(data_list, False, step)
-                    
-                if step % self.config.trainer.save_freq == 0:
-                    path = f"{self.config.trainer.save_dir}/{self.config.trainer.experiment_name}/{step}"
-                    self.tokenizer.save_pretrained(path)
-                    self.actor.save(path)
-
 
 @hydra.main(config_path="", config_name="config", version_base=None)
 def main(config):
+
+    OmegaConf.resolve(config)
 
     if config.trainer.disable_wandb:
         wandb.init = lambda *args, **kwargs: None

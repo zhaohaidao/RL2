@@ -93,6 +93,8 @@ class Critic(Worker):
             self.optimizer.zero_grad()
 
         self.log(metrics, step)
+        if (step + 1) % self.config.save_freq == 0:
+            self.save(f"{self.config.save_dir}/step{step + 1}/critic")
 
         self.offload_model_to_cpu()
         self.offload_optimizer_to_cpu()
