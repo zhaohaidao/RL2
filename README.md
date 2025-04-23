@@ -7,6 +7,11 @@ Due to the SPMD design and absence of parallel computing, the training is launch
 
 * Efficiency: sequence packing for high throughput.
 
+## Upcoming Features
+
+- [ ] Reproduction wandb report for popular RL projects, e.g., OpenReasonerZero and TinyZero
+- [ ] Multi-turn rollout with function calling
+
 ## Acknowledgement
 
 This project cannot be done without [DeepSpeedChat](https://github.com/deepspeedai/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [veRL](https://github.com/volcengine/verl), and [RingFlashAttention](https://github.com/zhuzilin/ring-flash-attention).
