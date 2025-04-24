@@ -47,13 +47,13 @@ def compute_gae(
 
 def compute_reinforce_adv(
     data_list: List[Dict[str, torch.Tensor]],
-    rollout_per_prompt: int,
+    responses_per_prompt: int,
     norm_var: bool
 ):
 
     rewards = torch.FloatTensor(
         [ex["rewards"].sum() for ex in data_list]
-    ).view(-1, rollout_per_prompt)
+    ).view(-1, responses_per_prompt)
     baselines = rewards.mean(-1, keepdim=True)
     advantages = rewards - baselines
     if norm_var:

@@ -1,8 +1,8 @@
 data:
   train_data_path: data/orz.json
   test_data_path: data/olympiadbench.json
-  max_prompt_length: 2048
-  batch_size: 128
+  prompts_per_rollout: 128
+  responses_per_prompt: 64
   
 actor:
   model_name: Qwen/Qwen2.5-7B
@@ -22,7 +22,6 @@ actor:
   rollout:
     tp_size: 1
     gpu_memory_utilization: 0.8
-    rollout_per_prompt: 64
     train_temperature: 1.0
     test_temperature: 0.0
     max_response_length: 8192

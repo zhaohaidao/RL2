@@ -36,7 +36,6 @@ class Trainer:
             self.critic = Critic(config.critic, self.device_mesh)
         self.actor = Actor(config.actor, self.device_mesh, True)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(config.actor.model_name)
         self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)
         _, self.test_dataloader = self.prepare_sampler_dataloader(False)
 
@@ -51,8 +50,7 @@ class Trainer:
 
         dataset = RLDataset(
             self.config.data.train_data_path if train else self.config.data.test_data_path,
-            self.tokenizer,
-            self.config.data.max_prompt_length
+            self.config.data.responses_per_prompt if train else 1
         )
         sampler = DistributedSampler(
             dataset,
@@ -64,7 +62,10 @@ class Trainer:
         )
         dataloader = DataLoader(
             dataset,
-            (self.config.data.batch_size if train else len(dataset)) // self.actor.rollout_device_mesh["dp"].size(),
+            (
+                self.config.data.prompts_per_rollout
+                if train else len(dataset)
+            ) // self.actor.rollout_device_mesh["dp"].size(),
             # if test, pack all data in a single batch
             sampler=sampler,
             collate_fn=dataset.collate_fn
@@ -83,7 +84,7 @@ class Trainer:
         elif self.config.adv.estimator == "reinforce":
             compute_reinforce_adv(
                 data_list,
-                self.config.actor.rollout.rollout_per_prompt,
+                self.config.data.responses_per_prompt,
                 self.config.adv.norm_var
             )
         else:
