@@ -1,0 +1,68 @@
+data:
+  train_data_path: data/countdown_train.json
+  test_data_path: data/countdown_test.json
+  max_prompt_length: 256
+  max_response_length: 1024
+  batch_size: 64
+  
+actor:
+  model_name: Qwen/Qwen2.5-3B
+  gradient_checkpointing: true
+  sp_size: 1
+  max_length_per_device: 2048
+  clip: 0.2
+  update_per_rollout: 1
+  lr: 1e-6
+  weight_decay: 1e-2
+  max_grad_norm: 1.0
+  offload_model: true
+  offload_optimizer: true
+  save_dir: ckpts/${trainer.experiment_name}
+  save_freq: 16
+
+  rollout:
+    tp_size: 1
+    gpu_memory_utilization: 0.8
+    rollout_per_prompt: 4
+    train_temperature: 1.0
+    test_temperature: 0.0
+    max_response_length: 1024
+    reward_fn_path: rewards/countdown.py
+
+  kl:
+    coef: 0.001
+    type: reward # `reward` or `loss`
+    estimator: k1 # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
+    # These two hyper-paratemers are orthogonal, so 
+    # there are 6 possible combinations.
+    # Two typical choices are
+    #   - OpenAI PPO: type=reward, estimator=k1
+    #   - DeepSeek GRPO: type=loss, estimator=k3
+
+critic:
+  model_name: Qwen/Qwen2.5-3B
+  gradient_checkpointing: true
+  sp_size: 1
+  max_length_per_device: 2048
+  clip: 0.5
+  update_per_rollout: 1
+  lr: 1e-5
+  weight_decay: 1e-2
+  max_grad_norm: 1.0
+  offload_model: true
+  offload_optimizer: true
+  save_dir: ${actor.save_dir}
+  save_freq: ${actor.save_freq}
+
+adv:
+  estimator: reinforce
+  gamma: 1.0
+  lamda: 1.0
+  norm_var: false
+  
+trainer:
+  project: TinyZero
+  experiment_name: qwen2.5-3b
+  n_epochs: 15
+  test_freq: 5
+  disable_wandb: false
