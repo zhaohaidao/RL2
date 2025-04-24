@@ -11,6 +11,7 @@ Due to the SPMD design and absence of parallel computing, the training is launch
 
 - [ ] Reproduction wandb report for popular RL projects, e.g., OpenReasonerZero and TinyZero
 - [ ] Multi-turn rollout with function calling
+- [ ] Prefix caching in training
 
 ## Acknowledgement
 
