@@ -25,10 +25,12 @@ class RLDataset(Dataset):
         ex = self.dataset[idx]
         message = ex["message"]
         answer = ex["answer"]
-
+        # Check if the last message is from the assistant (indicating enforce thinking for base model)
+        add_generation_prompt = message[-1]["role"] != "assistant"
+        
         prompt = self.tokenizer.apply_chat_template(
             message,
-            add_generation_prompt=True,
+            add_generation_prompt=add_generation_prompt,
             tokenize=False
         )
         prompt_id = self.tokenizer.encode(

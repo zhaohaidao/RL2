@@ -123,7 +123,7 @@ class Trainer:
                     for data_list in self.test_dataloader:
                         self.actor.rollout(data_list, False, step)
 
-@hydra.main(config_path="", config_name="config", version_base=None)
+@hydra.main(config_path="config", config_name="config", version_base=None)
 def main(config):
 
     OmegaConf.resolve(config)
