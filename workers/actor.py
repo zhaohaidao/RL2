@@ -77,7 +77,6 @@ class Actor(Worker):
         self.rollout_rng_state_manager = RolloutRngStateManager(self.rollout_device_mesh["dp"])
 
         self.train_sampling_params = SamplingParams(
-            n=self.config.rollout.rollout_per_prompt,
             temperature=self.config.rollout.train_temperature,
             max_tokens=self.config.rollout.max_response_length
         )
@@ -88,27 +87,31 @@ class Actor(Worker):
 
     def rollout(self, data_list: List[Dict], train: bool, step: int) -> Optional[List[Dict[str, torch.Tensor]]]:
 
+        prompts = [
+            self.tokenizer.apply_chat_template(
+                ex["messages"],
+                add_generation_prompt=True,
+                tokenize=False
+            )
+            for ex in data_list
+        ]
+
         with self.rollout_rng_state_manager:
             responses = self.llm.generate(
-                [ex["prompt"] for ex in data_list],
+                prompts,
                 sampling_params=self.train_sampling_params
                 if train else self.test_sampling_params,
                 use_tqdm=(self.device_mesh.get_rank() == 0)
             )
 
+        for ex, response in zip(data_list, responses):
+            ex["messages"].append(
+                {"role": "assistant", "content": response.outputs[0].text}
+            )
+
         if train:
             # If test, llm will soon be called again. See `Trainer.train`.
             self.llm.sleep()
-
-        data_list = [
-            {
-                "response": output.text,
-                "response_id": list(output.token_ids),
-                **ex
-            }
-            for ex, response in zip(data_list, responses)
-            for output in response.outputs
-        ]
 
         # Each device grades its respective trajectories to avoid duplicate computation.
         rank = self.rollout_device_mesh["tp"].get_local_rank()
@@ -116,12 +119,16 @@ class Actor(Worker):
         data_list = data_list[rank * n_trajectories_per_device:(rank + 1) * n_trajectories_per_device]
 
         for ex in data_list:
-            ex["reward"] = self.reward_fn(ex["response"], ex["answer"])
+            ex["reward"] = self.reward_fn(ex["messages"][-1]["content"], ex["answer"])
         # Only support outcome reward. RM should be served remotely if there is.
 
+        # TODO: log response clip ratio
         suffix = "train" if train else "test"
         self.log({
-            f"response_length/{suffix}": [len(ex["response_id"]) for ex in data_list],
+            f"response_length/{suffix}": [
+                len(self.tokenizer.encode(ex["messages"][-1]["content"]))
+                for ex in data_list
+            ],
             f"reward/{suffix}": [ex["reward"] for ex in data_list]
         }, step)
 
@@ -130,16 +137,28 @@ class Actor(Worker):
             tensor_data_list = []
             for ex in data_list:
 
-                prompt_id = ex["prompt_id"]
-                response_id = ex["response_id"]
-                reward = ex["reward"]
+                messages = ex["messages"]
+                states, actions, action_mask = [], [], []
+                for idx, message in enumerate(messages):
+                    state = self.tokenizer.apply_chat_template(
+                        messages[:idx + 1],
+                        add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
+                    )[len(states):]
 
-                states = prompt_id + response_id[:-1]
-                actions = (len(prompt_id) - 1) * [0] + response_id
-                rewards = (len(prompt_id) + len(response_id) - 2) * [0] + [reward]
-                position_ids = list(range(len(prompt_id) + len(response_id) - 1))
-                action_mask = (len(prompt_id) - 1) * [0] + len(response_id) * [1]
-                eos_mask = (len(prompt_id) + len(response_id) - 2) * [0] + [1]
+                    states.extend(state)
+                    actions.extend(
+                        state if message["role"] == "assistant"
+                        else len(state) * [0]
+                    )
+                    action_mask.extend(len(state) * [
+                        1 if message["role"] == "assistant" else 0
+                    ])
+
+                actions = actions[1:] + [0]
+                action_mask = action_mask[1:] + [0]
+                rewards = (len(states) - 2) * [0] + [ex["reward"]] + [0]
+                position_ids = list(range(len(states)))
+                eos_mask = (len(states) - 1) * [0] + [1]
 
                 tensor_data_list.append({
                     "states": torch.LongTensor([states]),
