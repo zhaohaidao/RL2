@@ -90,7 +90,7 @@ class Actor(Worker):
         prompts = [
             self.tokenizer.apply_chat_template(
                 ex["messages"],
-                add_generation_prompt=True,
+                add_generation_prompt=ex["messages"][-1]["role"] != "assistant",
                 tokenize=False
             )
             for ex in data_list

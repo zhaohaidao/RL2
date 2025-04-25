@@ -94,7 +94,7 @@ if __name__ == '__main__':
         def process_fn(example, idx):
             question = make_prefix(example, template_type=args.template_type)
             data = {
-                "message": [
+                "messages": [
                     {
                         "role": "system",
                         "content": (
