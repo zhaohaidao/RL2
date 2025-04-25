@@ -8,6 +8,7 @@ from torch.distributed.fsdp import (
     MixedPrecision
 )
 from torch.distributed.fsdp.api import StateDictType
+from transformers import AutoTokenizer
 import wandb
 from utils.fsdp import (
     get_fsdp_wrap_policy,
@@ -36,6 +37,8 @@ class Worker:
                 config.sp_size
             )
         )
+
+        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
 
     def prepare_model_optimizer(self):
 
@@ -400,6 +403,7 @@ class Worker:
             writeback=False
         ):
             if self.device_mesh.get_rank() == 0:
+                self.tokenizer.save_pretrained(f"{path}/model")
                 self.model.save_pretrained(f"{path}/model")
             dist.barrier()
 
