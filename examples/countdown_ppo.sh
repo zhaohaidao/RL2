@@ -8,7 +8,7 @@ torchrun \
     data.train_data_path=data/countdown_train.json \
     data.test_data_path=data/countdown_test.json \
     data.prompts_per_rollout=256 \
-    data.responses_per_prompt=4 \
+    data.responses_per_prompt=1 \
     actor.model_name=Qwen/Qwen2.5-3B \
     actor.max_length_per_device=2048 \
     actor.save_dir=ckpts/countdown_ppo \
