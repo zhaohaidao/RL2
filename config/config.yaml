@@ -14,8 +14,8 @@ actor:
   lr: 1e-6
   weight_decay: 1e-2
   max_grad_norm: 1.0
-  offload_model: true
-  offload_optimizer: true
+  offload_model: false
+  offload_optimizer: false
   save_dir: ckpts/${trainer.experiment_name}
   save_freq: -1
 
@@ -43,12 +43,12 @@ critic:
   sp_size: 1
   max_length_per_device: ${actor.max_length_per_device}
   clip: 0.5
-  update_per_rollout: 12
-  lr: 5e-6
+  update_per_rollout: 1
+  lr: 1e-5
   weight_decay: 1e-2
   max_grad_norm: 1.0
-  offload_model: true
-  offload_optimizer: true
+  offload_model: false
+  offload_optimizer: false
   save_dir: ${actor.save_dir}
   save_freq: ${actor.save_freq}
 
