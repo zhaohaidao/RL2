@@ -1,6 +1,7 @@
 from typing import Tuple, Dict, List
 import json
 import copy
+import uuid
 from torch.utils.data import Dataset
 
 class RLDataset(Dataset):
@@ -17,10 +18,12 @@ class RLDataset(Dataset):
     def __getitem__(self, idx):
 
         ex = self.dataset[idx]
+        uid = str(uuid.uuid4())
         messages = ex["messages"]
         answer = ex["answer"]
 
         return {
+            "uid": uid,
             "messages": messages,
             "answer": answer
         }

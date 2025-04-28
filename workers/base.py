@@ -171,8 +171,7 @@ class Worker:
             partitions = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )
-            self.shuffle_indices = sum(partitions, [])
-            # Cache this for `resume_and_gather_data_list`.
+
             data_lists: List[List[Dict[str, torch.Tensor]]] = [
                 [data_list[p] for p in partition]
                 for partition in partitions
@@ -210,7 +209,7 @@ class Worker:
         minibatches = []
         
         for data in data_list:
-            minibatch = {}
+            minibatch = {"uid": [ex.pop("uid") for ex in data]}
             for k in data[0].keys():
                 tensors = []
                 for ex in data:
@@ -333,7 +332,8 @@ class Worker:
         data_list = []
         for minibatch in minibatches:
             cu_seqlens = minibatch.pop("cu_seqlens")
-            for start_idx, end_idx in zip(cu_seqlens[:-1], cu_seqlens[1:]):
+            uid = minibatch.pop("uid")
+            for idx, (start_idx, end_idx) in enumerate(zip(cu_seqlens[:-1], cu_seqlens[1:])):
                 ex = {}
                 for k, v in minibatch.items():
                     tensor = v[:, start_idx:end_idx]
@@ -362,7 +362,7 @@ class Worker:
                         k: v[:, :length + 1]
                         for k, v in ex.items()
                     }
-                    
+                    ex["uid"] = uid[idx]
                 data_list.append(ex)
         
         return data_list
@@ -370,14 +370,7 @@ class Worker:
     def _gather_and_reorder_data(self, data_list):
         # Gather data across DP dimension if on SP rank 0
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
-            shuffled_data_list = gather_and_concat_list(data_list, self.sp_device_mesh["dp"])
-        
-        # Reorder data on global rank 0
-        if self.device_mesh.get_rank() == 0:
-            result = [None for _ in range(len(shuffled_data_list))]
-            for idx, data in zip(self.shuffle_indices, shuffled_data_list):
-                result[idx] = data
-            return result
+            return gather_and_concat_list(data_list, self.sp_device_mesh["dp"])
         else:
             return None
 

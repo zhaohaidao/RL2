@@ -1,4 +1,5 @@
 from typing import List, Dict
+from collections import defaultdict
 import torch
 
 def compute_kl_term(
@@ -51,15 +52,23 @@ def compute_reinforce_adv(
     norm_var: bool
 ):
 
-    rewards = torch.FloatTensor(
-        [ex["rewards"].sum() for ex in data_list]
-    ).view(-1, responses_per_prompt)
-    baselines = rewards.mean(-1, keepdim=True)
-    advantages = rewards - baselines
-    if norm_var:
-        stds = rewards.std(-1, keepdim=True)
-        advantages /= (stds + torch.finfo(stds.dtype).eps)
-    advantages = advantages.flatten()
+    rewards = [ex["rewards"].sum() for ex in data_list]
 
-    for ex, advantage in zip(data_list, advantages):
-        ex["advantages"] = advantage * ex["action_mask"]
+    uid2rewards = defaultdict(list)
+    for ex, reward in zip(data_list, rewards):
+        uid2rewards[ex["uid"]].append(reward)
+
+    uid2baseline = {
+        k: (torch.stack(v).mean() if len(v) > 1 else v[0])
+        for k, v in uid2rewards.items()
+    }
+    for ex, reward in zip(data_list, rewards):
+        ex["advantages"] = (reward - uid2baseline[ex["uid"]]) * ex["action_mask"]
+
+    if norm_var:
+        uid2std = {
+            k: (torch.stack(v).std() if len(v) > 1 else 1)
+            for k, v in uid2rewards.items()
+        }
+        for ex in data_list:
+            ex["advantages"] /= (uid2std[ex["uid"]] + torch.finfo(ex["advantages"].dtype).eps)
