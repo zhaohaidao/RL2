@@ -1,33 +1,23 @@
-from typing import Dict, List, Optional
-import importlib.util
+from typing import Dict, List, Tuple
+import os
+import asyncio
+import requests
+import importlib
+import concurrent.futures
 from collections import defaultdict
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import StateDictType
-from transformers import AutoModelForCausalLM
-from vllm import LLM, SamplingParams
+from torch.nn.utils import clip_grad_norm_
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from sglang.srt.entrypoints.engine import Engine
+from sglang.srt.patch_torch import monkey_patch_torch_reductions
+from sglang.srt.utils import MultiprocessingSerializer
+from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm import tqdm
 from workers.base import Worker
 from algs import compute_kl_term
 from utils.ring_attn import update_params_of_ring_attn
 from utils.comm import gather_and_concat_list, sum_across_processes
-
-
-class RolloutRngStateManager:
-
-    def __init__(self, device_mesh):
-
-        self.original_rng_state = torch.cuda.get_rng_state()
-        torch.cuda.manual_seed(device_mesh.get_local_rank())
-        self.rollout_rng_state = torch.cuda.get_rng_state()
-        torch.cuda.set_rng_state(self.original_rng_state)
-
-    def __enter__(self):
-        torch.cuda.set_rng_state(self.rollout_rng_state)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        torch.cuda.set_rng_state(self.original_rng_state)
 
 
 class Actor(Worker):
@@ -37,7 +27,6 @@ class Actor(Worker):
         
         self.model = AutoModelForCausalLM.from_pretrained(
             config.model_name,
-            torch_dtype=torch.float32 if train else torch.bfloat16,
             attn_implementation="flash_attention_2"
         )
         
@@ -45,10 +34,12 @@ class Actor(Worker):
         if train:
             self.prepare_reward_fn()
             self.prepare_inference_engine()
-
+    
     def prepare_reward_fn(self):
 
-        spec = importlib.util.spec_from_file_location("custom_module", self.config.rollout.reward_fn_path)
+        spec = importlib.util.spec_from_file_location(
+            "custom_module", self.config.rollout.reward_fn_path
+        )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.reward_fn = module.reward_fn
@@ -56,7 +47,7 @@ class Actor(Worker):
     def prepare_inference_engine(self):
 
         self.rollout_device_mesh = dist.device_mesh.init_device_mesh(
-            "cuda",
+            "cpu",
             mesh_dim_names=("dp", "tp"),
             mesh_shape=(
                 self.device_mesh.size() // self.config.rollout.tp_size,
@@ -64,112 +55,185 @@ class Actor(Worker):
             )
         )
 
-        self.llm = LLM(
-            self.config.model_name,
-            tensor_parallel_size=self.config.rollout.tp_size,
-            distributed_executor_backend="external_launcher",
-            # See https://github.com/vllm-project/vllm/issues/11400.
-            gpu_memory_utilization=self.config.rollout.gpu_memory_utilization,
-            enable_sleep_mode=True,
-            seed=self.rollout_device_mesh["dp"].get_local_rank()
+        if "TORCHELASTIC_USE_AGENT_STORE" in os.environ.keys():
+            del os.environ["TORCHELASTIC_USE_AGENT_STORE"]
+        monkey_patch_torch_reductions()
+        cuda_visible_devices = self.rollout_device_mesh["tp"].size() * [None]
+        dist.all_gather_object(
+            cuda_visible_devices,
+            os.environ["RANK"],
+            self.rollout_device_mesh["tp"].get_group()
         )
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
-        self.rollout_rng_state_manager = RolloutRngStateManager(self.rollout_device_mesh["dp"])
+        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+            os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
 
-        self.train_sampling_params = SamplingParams(
-            temperature=self.config.rollout.train_temperature,
-            max_tokens=self.config.rollout.max_response_length
-        )
-        self.test_sampling_params = SamplingParams(
-            temperature=self.config.rollout.test_temperature,
-            max_tokens=self.config.rollout.max_response_length
-        )
-
-    def rollout(self, data_list: List[Dict], train: bool, step: int) -> Optional[List[Dict[str, torch.Tensor]]]:
-
-        prompts = [
-            self.tokenizer.apply_chat_template(
-                ex["messages"],
-                add_generation_prompt=True,
-                tokenize=False
-            )
-            for ex in data_list
-        ]
-
-        with self.rollout_rng_state_manager:
-            responses = self.llm.generate(
-                prompts,
-                sampling_params=self.train_sampling_params
-                if train else self.test_sampling_params,
-                use_tqdm=(self.device_mesh.get_rank() == 0)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.config.model_name
             )
 
-        for ex, response in zip(data_list, responses):
-            ex["messages"].append(
-                {"role": "assistant", "content": response.outputs[0].text}
+            self.llm = Engine(
+                model_path=self.config.model_name,
+                dtype="bfloat16",
+                tp_size=self.rollout_device_mesh["tp"].size(),
+                mem_fraction_static=self.config.rollout.gpu_memory_utilization,
+                enable_memory_saver=True
+            )
+        
+            self.train_sampling_params = {
+                "temperature": self.config.rollout.train_temperature,
+                "max_new_tokens": self.config.rollout.max_response_length
+            }
+
+            self.test_sampling_params = {
+                "temperature": self.config.rollout.test_temperature,
+                "max_new_tokens": self.config.rollout.max_response_length
+            }
+
+        dist.barrier()
+
+    async def single_rollout(self, messages, train):
+
+        stat = defaultdict(list)
+        for turn in range(self.config.rollout.n_turns):
+
+            prompt = self.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            )
+            response = await self.llm.async_generate(
+                prompt, sampling_params=self.train_sampling_params if train else self.test_sampling_params
+            )
+            messages.append(
+                {"role": "assistant", "content": response["text"]}
             )
 
-        if train:
-            # If test, llm will soon be called again. See `Trainer.train`.
-            self.llm.sleep()
+            meta_info = response["meta_info"]
+            stat["response_length"].append(meta_info["completion_tokens"])
+            stat["rollout_length_clip_ratio"].append(meta_info["finish_reason"]["type"] == "length")
 
-        # Each device grades its respective trajectories to avoid duplicate computation.
-        rank = self.rollout_device_mesh["tp"].get_local_rank()
-        n_trajectories_per_device = len(data_list) // self.rollout_device_mesh["tp"].size()
-        data_list = data_list[rank * n_trajectories_per_device:(rank + 1) * n_trajectories_per_device]
+            # Do not invoke tools in the last turn.
+            if turn + 1 == self.config.rollout.n_turns:
+                break
 
-        for ex in data_list:
-            ex["reward"] = self.reward_fn(ex["messages"][-1]["content"], ex["answer"])
-        # Only support outcome reward. RM should be served remotely if there is.
+            # The environment should be launched as a service which 
+            # receives previous messages return a *list of messages*, as 
+            # the model may call multiple tools simultaneously. An empty 
+            # list should be returned if no function is called.
+            env_messages = requests.post(
+                self.config.env_url, json=messages
+            ).json()
 
-        # TODO: log response clip ratio
-        suffix = "train" if train else "test"
-        self.log({
-            f"response_length/{suffix}": [
-                len(self.tokenizer.encode(ex["messages"][-1]["content"]))
-                for ex in data_list
-            ],
-            f"reward/{suffix}": [ex["reward"] for ex in data_list]
-        }, step)
+            # Terminate if no tool is invoked.
+            if len(env_messages) == 0:
+                break
 
-        if train:
+            messages.extend(env_messages)
 
-            tensor_data_list = []
-            for ex in data_list:
+        stat["n_turns"].append(turn + 1)
+        return stat
 
-                messages = ex["messages"]
-                states, actions, action_mask = [], [], []
-                for idx, message in enumerate(messages):
-                    state = self.tokenizer.apply_chat_template(
-                        messages[:idx + 1],
-                        add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
-                    )[len(states):]
+    def tokenize_messages(self, ex, reward):
 
-                    states.extend(state)
-                    actions.extend(
-                        state if message["role"] == "assistant"
-                        else len(state) * [0]
-                    )
-                    action_mask.extend(len(state) * [
-                        1 if message["role"] == "assistant" else 0
-                    ])
+        messages = ex["messages"]
+        states, actions, action_mask = [], [], []
+        for idx, message in enumerate(messages):
 
-                actions = actions[1:] + [0]
-                action_mask = action_mask[1:] + [0]
-                rewards = (len(states) - 2) * [0] + [ex["reward"]] + [0]
-                position_ids = list(range(len(states)))
-                eos_mask = (len(states) - 1) * [0] + [1]
+            state = self.tokenizer.apply_chat_template(
+                messages[:idx + 1],
+                add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
+            )[len(states):]
 
-                tensor_data_list.append({
-                    "states": torch.LongTensor([states]),
-                    "actions": torch.LongTensor([actions]),
-                    "rewards": torch.FloatTensor([rewards]),
-                    "position_ids": torch.LongTensor([position_ids]),
-                    "action_mask": torch.LongTensor([action_mask]),
-                    "eos_mask": torch.LongTensor([eos_mask])
-                })
+            states.extend(state)
+            actions.extend(
+                state if message["role"] == "assistant"
+                else len(state) * [0]
+            )
+            action_mask.extend(len(state) * [
+                1 if message["role"] == "assistant" else 0
+            ])
 
-            return gather_and_concat_list(tensor_data_list, self.device_mesh)
+        states = states[:-1]
+        actions = actions[1:]
+        action_mask = action_mask[1:]
+
+        rewards = (len(states) - 1) * [0] + [reward]
+        position_ids = list(range(len(states)))
+        eos_mask = (len(states) - 1) * [0] + [1]
+
+        return {
+            "uid": ex["uid"],
+            "states": torch.LongTensor(states).unsqueeze(0),
+            "actions": torch.LongTensor(actions).unsqueeze(0),
+            "rewards": torch.FloatTensor(rewards).unsqueeze(0),
+            "position_ids": torch.LongTensor(position_ids).unsqueeze(0),
+            "action_mask": torch.LongTensor(action_mask).unsqueeze(0),
+            "eos_mask": torch.LongTensor(eos_mask).unsqueeze(0)
+        }
+
+    def rollout(self, data_list, train: bool, step: int):
+
+        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+
+            loop = asyncio.get_event_loop()
+            stats: Tuple[Dict[List]] = loop.run_until_complete(
+                asyncio.gather(*(
+                    self.single_rollout(ex["messages"], train)
+                    for ex in data_list
+                ))
+            )
+            stats: Dict[List] = {
+                k: sum([stat[k] for stat in stats], [])
+                for k in stats[0].keys()
+            }
+
+            if train:
+                # If test, llm will soon be called again. See `Trainer.train`.
+                self.llm.release_memory_occupation()
+        
+        dist.barrier()
+
+        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+
+            if self.config.rollout.multi_thread_scoring:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    rewards = list(executor.map(
+                        lambda ex: self.reward_fn(ex["messages"], ex["answer"]),
+                        data_list
+                    ))
+            else:
+                # Math-Verify is thread-unsafe. See https://github.com/huggingface/Math-Verify/issues/42.
+                rewards = [
+                    self.reward_fn(ex["messages"], ex["answer"])
+                    for ex in data_list
+                ]
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                data_list = list(executor.map(
+                    lambda ex, reward: self.tokenize_messages(ex, reward),
+                    data_list, rewards
+                ))
+            
+            suffix = "train" if train else "test"
+            self.log(
+                {
+                    f"reward/{suffix}": rewards,
+                    **{
+                        f"{prefix}/{suffix}": v
+                        for prefix, v in stats.items()
+                    }
+                },
+                step=step,
+                device_mesh=self.rollout_device_mesh["dp"]
+            )
+
+        dist.barrier()
+
+        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+            return gather_and_concat_list(
+                data_list,
+                self.rollout_device_mesh["dp"]
+            )
 
     def forward(self, minibatch: Dict[str, torch.Tensor]) -> torch.Tensor:
         update_params_of_ring_attn(
@@ -273,27 +337,45 @@ class Actor(Worker):
                 loss.backward() 
                 if self.device_mesh.get_rank() == 0:
                     tbar.update()
-
-            grad_norm = self.model.clip_grad_norm_(self.config.max_grad_norm)
-            metrics["actor/grad_norm"].append(grad_norm.item())
+            grad_norm = clip_grad_norm_(
+                self.model.parameters(),
+                max_norm=self.config.max_grad_norm
+            )
+            metrics["actor/grad_norm"].append(grad_norm.full_tensor().item())
             self.optimizer.step()
             self.optimizer.zero_grad()
 
         self.log(metrics, step)
         if (step + 1) % self.config.save_freq == 0:
-            self.save(f"{self.config.save_dir}/step{step + 1}/actor")
+            self.save(step)
 
         self.offload_optimizer_to_cpu()
-        with FSDP.state_dict_type(
-            self.model,
-            StateDictType.SHARDED_STATE_DICT
-        ):
-            state_dict = self.model.state_dict()
+        torch.cuda.empty_cache()
+        # or llm.resume_memory_occupation() may OOM
+        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+            self.llm.resume_memory_occupation()
+
+        named_tensors = [(k, v) for k, v in self.model.state_dict().items()]
+        for idx, (name, tensor) in enumerate(named_tensors):
+            serialized_tensor = MultiprocessingSerializer.serialize(
+                tensor.full_tensor()
+            )
+            serialized_tensors = [
+                None for _ in range(self.rollout_device_mesh["tp"].size())
+            ] if self.rollout_device_mesh["tp"].get_local_rank() == 0 else None
+            dist.gather_object(
+                serialized_tensor,
+                serialized_tensors,
+                group_dst=0,
+                group=self.rollout_device_mesh["tp"].get_group(),
+            )
+            if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+                self.llm.update_weights_from_tensor(
+                    named_tensors=[(
+                        name, LocalSerializedTensor(values=serialized_tensors)
+                    )],
+                    flush_cache=(idx == len(named_tensors) - 1)
+                )
+        dist.barrier()
         self.offload_model_to_cpu()
-        # offload params here, or state_dict cannot be accessed
-        torch.cuda.empty_cache() # or llm.wake_up() will OOM
-        self.llm.wake_up() # load inference engine to GPU
-        self.llm.llm_engine.model_executor.driver_worker.worker.model_runner.model.load_weights((
-            (name, param.full_tensor())
-            for name, param in state_dict.items()
-        ))
+        # Offload params here, or the params cannot be loaded.

@@ -87,14 +87,17 @@ class Critic(Worker):
                 if self.device_mesh.get_rank() == 0:
                     tbar.update()
 
-            grad_norm = self.model.clip_grad_norm_(self.config.max_grad_norm)
-            metrics["critic/grad_norm"].append(grad_norm.item())
+            grad_norm = clip_grad_norm_(
+                self.model.parameters(),
+                max_norm=self.config.max_grad_norm
+            )
+            metrics["critic/grad_norm"].append(grad_norm.full_tensor().item())
             self.optimizer.step()
             self.optimizer.zero_grad()
 
         self.log(metrics, step)
         if (step + 1) % self.config.save_freq == 0:
-            self.save(f"{self.config.save_dir}/step{step + 1}/critic")
+            self.save(step)
 
         self.offload_model_to_cpu()
         self.offload_optimizer_to_cpu()

@@ -16,16 +16,19 @@ actor:
   max_grad_norm: 1.0
   offload_model: true
   offload_optimizer: true
-  save_dir: ckpts/${trainer.experiment_name}
+  save_dir: ckpts/${trainer.experiment_name}/actor
   save_freq: -1
 
   rollout:
     tp_size: 1
-    gpu_memory_utilization: 0.8
+    gpu_memory_utilization: 0.5
     train_temperature: 1.0
     test_temperature: 0.0
+    n_turns: 1
     max_response_length: null
+    env_url: null
     reward_fn_path: null
+    multi_thread_scoring: true
 
   kl:
     coef: 0.0
@@ -36,6 +39,7 @@ actor:
     # Two typical choices are
     #   - OpenAI PPO: type=reward, estimator=k1
     #   - DeepSeek GRPO: type=loss, estimator=k3
+    # However, it is recommended to use `estimator=k2` when `type=loss`.
 
 critic:
   model_name: ${actor.model_name}
@@ -49,7 +53,7 @@ critic:
   max_grad_norm: 1.0
   offload_model: true
   offload_optimizer: true
-  save_dir: ${actor.save_dir}
+  save_dir: ckpts/${trainer.experiment_name}/critic
   save_freq: ${actor.save_freq}
 
 adv:

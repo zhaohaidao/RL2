@@ -3,15 +3,9 @@ import os
 import math
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP,
-    MixedPrecision
-)
-from torch.distributed.fsdp.api import StateDictType
-from transformers import AutoTokenizer
 import wandb
 from utils.fsdp import (
-    get_fsdp_wrap_policy,
+    shard_model,
     offload_fsdp_model_to_cpu,
     load_fsdp_model_to_gpu,
     offload_fsdp_optimizer,
@@ -38,28 +32,12 @@ class Worker:
             )
         )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-
     def prepare_model_optimizer(self):
 
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
-        auto_wrap_policy = get_fsdp_wrap_policy(self.model)
-
-        mixed_precision = MixedPrecision(
-            param_dtype=torch.bfloat16,
-            reduce_dtype=torch.bfloat16,
-            buffer_dtype=torch.bfloat16
-        ) if self.train else None
-
-        self.model = FSDP(
-            self.model,
-            auto_wrap_policy=auto_wrap_policy,
-            mixed_precision=mixed_precision,
-            device_mesh=self.device_mesh,
-            device_id=torch.cuda.current_device()
-        )
+        shard_model(self.model, self.device_mesh)
 
         if self.train:
             self.optimizer = torch.optim.AdamW(
@@ -374,10 +352,13 @@ class Worker:
         else:
             return None
 
-    def log(self, metrics: Dict[str, List], step: int):
+    def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 
         metrics = {
-            k: gather_and_concat_list(v, self.device_mesh)
+            k: gather_and_concat_list(
+                v,
+                device_mesh if device_mesh is not None else self.device_mesh
+            )
             for k, v in metrics.items()
         }
         
@@ -387,25 +368,14 @@ class Worker:
                 for k, v in metrics.items()
             }, step=step)
 
-    def save(self, path):
+    def save(self, step):
 
-        with FSDP.summon_full_params(
-            self.model,
-            offload_to_cpu=True,
-            rank0_only=True,
-            writeback=False
-        ):
-            if self.device_mesh.get_rank() == 0:
-                self.tokenizer.save_pretrained(f"{path}/model")
-                self.model.save_pretrained(f"{path}/model")
-            dist.barrier()
-
-        os.makedirs(f"{path}/optimizer", exist_ok=True)
-        with FSDP.state_dict_type(
-            self.model,
-            StateDictType.SHARDED_STATE_DICT
-        ):
-            torch.save(
-                self.optimizer.state_dict(),
-                f"{path}/optimizer/rank{self.device_mesh.get_rank()}.pt"
-            )
+        os.makedirs(f"{self.config.save_dir}/step{step}", exist_ok=True)
+        torch.save(
+            self.model.state_dict(),
+            f"{self.config.save_dir}/step{step}/model_rank{self.device_mesh.get_rank()}.pt"
+        )
+        torch.save(
+            self.optimizer.state_dict(),
+            f"{self.config.save_dir}/step{step}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+        )
