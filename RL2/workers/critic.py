@@ -4,9 +4,9 @@ from contextlib import nullcontext
 import torch
 from transformers import AutoModelForTokenClassification
 from tqdm import tqdm
-from workers.base import Worker
-from utils.ring_attn import update_params_of_ring_attn
-from utils.comm import sum_across_processes
+from RL2.workers.base import Worker
+from RL2.utils.ring_attn import update_params_of_ring_attn
+from RL2.utils.comm import sum_across_processes
 
 
 class Critic(Worker):
