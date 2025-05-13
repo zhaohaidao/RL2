@@ -4,15 +4,15 @@ import math
 import torch
 import torch.distributed as dist
 import wandb
-from utils.fsdp import (
+from RL2.utils.fsdp import (
     shard_model,
     offload_fsdp_model_to_cpu,
     load_fsdp_model_to_gpu,
     offload_fsdp_optimizer,
     load_fsdp_optimizer
 )
-from utils.seqlen_balance import get_seqlen_balanced_partitions
-from utils.comm import gather_and_concat_list
+from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
+from RL2.utils.comm import gather_and_concat_list
         
 
 class Worker:

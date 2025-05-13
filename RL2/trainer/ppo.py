@@ -7,17 +7,17 @@ import torch
 import torch.distributed as dist
 from transformers import AutoTokenizer
 import wandb
-from data import RLDataset
-from workers.actor import Actor
-from workers.critic import Critic
-from algs import (
+from RL2.dataset.rl import RLDataset
+from RL2.workers.actor import Actor
+from RL2.workers.critic import Critic
+from RL2.algs import (
     compute_gae,
     compute_reinforce_adv
 )
-from utils.comm import initialize_global_process_group
+from RL2.utils.comm import initialize_global_process_group
 
 
-class Trainer:
+class PPOTrainer:
 
     def __init__(self, config):
 
@@ -124,7 +124,7 @@ class Trainer:
                     for data_list in self.test_dataloader:
                         self.actor.rollout(data_list, False, step)
 
-@hydra.main(config_path="", config_name="config", version_base=None)
+@hydra.main(config_path="config", config_name="ppo", version_base=None)
 def main(config):
 
     OmegaConf.resolve(config)
@@ -135,7 +135,7 @@ def main(config):
 
     initialize_global_process_group()
     
-    trainer = Trainer(config)
+    trainer = PPOTrainer(config)
     trainer.train()
 
 if __name__ == "__main__":
