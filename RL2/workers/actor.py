@@ -31,7 +31,7 @@ class Actor(Worker):
         )
         
         self.prepare_model_optimizer()
-        if train:
+        if hasattr(config, "rollout") and train:
             self.prepare_reward_fn()
             self.prepare_inference_engine()
     
@@ -244,7 +244,10 @@ class Actor(Worker):
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
             use_cache=False
-        ).logits / self.config.rollout.train_temperature
+        ).logits / (
+            self.config.rollout.train_temperature
+            if hasattr(self.config, "rollout") else 1.0
+        )
 
         return torch.gather(
             logits.log_softmax(-1),

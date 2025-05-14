@@ -8,7 +8,7 @@ class RLDataset(Dataset):
     
     def __init__(self, data_path, responses_per_prompt):
 
-        with open(data_path, "r") as f:
+        with open(data_path) as f:
             self.dataset = json.load(f)
         self.responses_per_prompt = responses_per_prompt
         
