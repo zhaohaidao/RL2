@@ -32,15 +32,7 @@ class DPODataset(Dataset):
         chosen = self.tokenize_messages_completion(messages, chosen)
         rejected = self.tokenize_messages_completion(messages, rejected)
 
-        ex = {
-            k: torch.LongTensor(chosen[k] + rejected[k]).unsqueeze(0)
-            for k in chosen.keys()
-        }
-        ex["seqlens"] = torch.IntTensor([
-            len(chosen["states"]), len(rejected["states"])
-        ])
-
-        return ex
+        return chosen, rejected
 
     def tokenize_messages_completion(self, messages, completion):
 
@@ -78,16 +70,18 @@ class DPODataset(Dataset):
 
     def collate_fn(self, batch):
         
-        seqlens = torch.cat([ex.pop("seqlens") for ex in batch]) 
+        seqlens = torch.IntTensor(
+            [len(ex[0]["states"]) for ex in batch] + [len(ex[1]["states"]) for ex in batch]
+        )
         cu_seqlens = torch.cumsum(
             torch.cat((torch.IntTensor([0]), seqlens)),
             0, dtype=torch.int32
         ).to(torch.cuda.current_device())
         batch = {
-            k: torch.cat(
-                [ex[k] for ex in batch], -1
-            ).to(torch.cuda.current_device())
-            for k in batch[0].keys()
+            k: torch.LongTensor(
+                sum([ex[0][k] for ex in batch] + [ex[1][k] for ex in batch], [])
+            ).unsqueeze(0).to(torch.cuda.current_device())
+            for k in batch[0][0].keys()
         }
         batch["cu_seqlens"] = cu_seqlens
 

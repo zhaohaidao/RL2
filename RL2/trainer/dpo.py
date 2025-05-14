@@ -28,8 +28,21 @@ def forward(actor, batch):
         group=actor.sp_device_mesh["sp"].get_group()
     )
     logps = logps + partial_logps - partial_logps.detach()
-    logps = logps.view(-1, 2)
-    return logps[:, 0], logps[:, 1]
+    chosen_logps, rejected_logps = logps.view(2, -1)
+
+    chosen_actions = torch.stack([
+        batch["action_mask"][:, start_idx:end_idx].sum()
+        for start_idx, end_idx
+        in zip(cu_seqlens[:len(chosen_logps)], cu_seqlens[1:len(chosen_logps) + 1])
+    ])
+    dist.all_reduce(
+        chosen_actions,
+        op=dist.ReduceOp.SUM,
+        group=actor.sp_device_mesh["sp"].get_group()
+    )
+    chosen_avg_logps = chosen_logps / (chosen_actions + torch.finfo(chosen_logps.dtype).eps)
+
+    return chosen_logps, rejected_logps, chosen_avg_logps
 
 
 class DPOTrainer(Trainer):
@@ -73,22 +86,26 @@ class DPOTrainer(Trainer):
             ):
 
                 with torch.no_grad():
-                    ref_chosen_logps, ref_rejected_logps = forward(
+                    ref_chosen_logps, ref_rejected_logps, _ = forward(
                         self.ref_actor, batch
                     )
-                chosen_logps, rejected_logps = forward(
+                chosen_logps, rejected_logps, chosen_avg_logps = forward(
                     self.actor, batch
                 )
                 chosen_rewards = self.config.trainer.beta * (chosen_logps - ref_chosen_logps)
                 rejected_rewards = self.config.trainer.beta * (rejected_logps - ref_rejected_logps)
                 reward_margins = chosen_rewards - rejected_rewards
 
-                loss = - F.logsigmoid(reward_margins).mean()
+                dpo_loss = - F.logsigmoid(reward_margins).mean()
+                sft_loss = - chosen_avg_logps.mean()
+                loss = dpo_loss + self.config.trainer.alpha * sft_loss
                 loss.backward()
 
                 accuracies = (chosen_rewards > rejected_rewards).float()
 
-                metrics["loss"].append(loss.item())
+                metrics["loss/total"].append(loss.item())
+                metrics["loss/dpo"].append(dpo_loss.item())
+                metrics["loss/sft"].append(sft_loss.item())
                 metrics["accuracy"].append(accuracies.mean().item())
                 metrics["rewards/chosen"].append(chosen_rewards.mean().item())
                 metrics["rewards/rejected"].append(rejected_rewards.mean().item())
