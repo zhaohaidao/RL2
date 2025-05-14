@@ -1,12 +1,6 @@
-from typing import Dict, List
 import hydra
-from omegaconf import OmegaConf
-import os
 from torch.utils.data import DistributedSampler, DataLoader
-import torch
-import torch.distributed as dist
-from transformers import AutoTokenizer
-import wandb
+from RL2.trainer.base import Trainer
 from RL2.dataset.rl import RLDataset
 from RL2.workers.actor import Actor
 from RL2.workers.critic import Critic
@@ -17,16 +11,10 @@ from RL2.algs import (
 from RL2.utils.comm import initialize_global_process_group
 
 
-class PPOTrainer:
+class PPOTrainer(Trainer):
 
     def __init__(self, config):
-
-        self.config = config
-        world_size = int(os.environ["WORLD_SIZE"])
-        self.device_mesh = dist.device_mesh.init_device_mesh(
-            "cuda",
-            mesh_shape=(world_size,)
-        )
+        super().__init__(config)
 
         if config.actor.kl.coef > 0:
             self.ref_actor = Actor(
@@ -38,13 +26,6 @@ class PPOTrainer:
 
         self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)
         _, self.test_dataloader = self.prepare_sampler_dataloader(False)
-
-        if self.device_mesh.get_rank() == 0:
-            wandb.init(
-                project=self.config.trainer.project,
-                name=self.config.trainer.experiment_name,
-                config=OmegaConf.to_container(self.config)
-            )
 
     def prepare_sampler_dataloader(self, train: bool):
 
@@ -73,7 +54,7 @@ class PPOTrainer:
 
         return sampler, dataloader
     
-    def compute_advantages(self, data_list: List[Dict[str, torch.Tensor]]):
+    def compute_advantages(self, data_list):
 
         if self.config.adv.estimator == "gae":
             compute_gae(
@@ -124,14 +105,9 @@ class PPOTrainer:
                     for data_list in self.test_dataloader:
                         self.actor.rollout(data_list, False, step)
 
+
 @hydra.main(config_path="config", config_name="ppo", version_base=None)
 def main(config):
-
-    OmegaConf.resolve(config)
-
-    if config.trainer.disable_wandb:
-        wandb.init = lambda *args, **kwargs: None
-        wandb.log = lambda *args, **kwargs: None
 
     initialize_global_process_group()
     
