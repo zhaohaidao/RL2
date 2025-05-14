@@ -1,5 +1,4 @@
 import hydra
-from torch.utils.data import DistributedSampler, DataLoader
 from RL2.trainer.base import Trainer
 from RL2.dataset.rl import RLDataset
 from RL2.workers.actor import Actor
@@ -33,26 +32,16 @@ class PPOTrainer(Trainer):
             self.config.data.train_data_path if train else self.config.data.test_data_path,
             self.config.data.responses_per_prompt if train else 1
         )
-        sampler = DistributedSampler(
-            dataset,
-            num_replicas=self.actor.rollout_device_mesh["dp"].size(),
-            rank=self.actor.rollout_device_mesh["dp"].get_local_rank(),
-            # Sharded inference engines share identical data.
-            shuffle=train,
-            drop_last=True
-        )
-        dataloader = DataLoader(
+
+        return super().prepare_sampler_dataloader(
             dataset,
             (
                 self.config.data.prompts_per_rollout
                 if train else len(dataset)
             ) // self.actor.rollout_device_mesh["dp"].size(),
-            # if test, pack all data in a single batch
-            sampler=sampler,
-            collate_fn=dataset.collate_fn
+            train,
+            self.actor.rollout_device_mesh["dp"]
         )
-
-        return sampler, dataloader
     
     def compute_advantages(self, data_list):
 
@@ -65,7 +54,6 @@ class PPOTrainer(Trainer):
         elif self.config.adv.estimator == "reinforce":
             compute_reinforce_adv(
                 data_list,
-                self.config.data.responses_per_prompt,
                 self.config.adv.norm_var
             )
         else:

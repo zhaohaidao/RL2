@@ -1,26 +1,7 @@
-import json
-import torch
-from torch.utils.data import Dataset
+from RL2.dataset.base import BaseDataset
 
 
-class DPODataset(Dataset):
-
-    def __init__(
-        self,
-        data_path,
-        tokenizer,
-        max_length,
-        device_mesh
-    ):
-
-        with open(data_path) as f:
-            self.dataset = json.load(f)
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-        self.device_mesh = device_mesh
-
-    def __len__(self):
-        return len(self.dataset)
+class DPODataset(BaseDataset):
 
     def __getitem__(self, idx):
 
@@ -50,39 +31,10 @@ class DPODataset(Dataset):
             "position_ids": list(range(len(prompt) + len(completion) - 1)),
             "action_mask": (len(prompt) - 1) * [0] + len(completion) * [1]
         }
-
-        ex = {
-            k: v[:self.max_length] for k, v in ex.items()
-        }
-
-        multiple_of = 2 * self.device_mesh.size()
-        if len(ex["states"]) % multiple_of != 0:
-            pad_tokens = multiple_of - len(ex["states"]) % multiple_of
-            for v in ex.values():
-                v.extend(pad_tokens * [0])
-
-        rank = self.device_mesh.get_local_rank()
-        half_seqlen = len(ex["states"]) // multiple_of
-        return {
-            k: v[rank * half_seqlen:(rank + 1) * half_seqlen] + v[(multiple_of - rank - 1) * half_seqlen:(multiple_of - rank) * half_seqlen]
-            for k, v in ex.items()
-        }
+        return self.truncate_and_scatter(ex)
 
     def collate_fn(self, batch):
-        
-        seqlens = torch.IntTensor(
-            [len(ex[0]["states"]) for ex in batch] + [len(ex[1]["states"]) for ex in batch]
-        )
-        cu_seqlens = torch.cumsum(
-            torch.cat((torch.IntTensor([0]), seqlens)),
-            0, dtype=torch.int32
-        ).to(torch.cuda.current_device())
-        batch = {
-            k: torch.LongTensor(
-                sum([ex[0][k] for ex in batch] + [ex[1][k] for ex in batch], [])
-            ).unsqueeze(0).to(torch.cuda.current_device())
-            for k in batch[0][0].keys()
-        }
-        batch["cu_seqlens"] = cu_seqlens
 
-        return batch
+        return super().collate_fn(
+            [ex[0] for ex in batch] + [ex[1] for ex in batch]
+        )

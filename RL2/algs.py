@@ -1,6 +1,67 @@
 from typing import List, Dict
 from collections import defaultdict
 import torch
+import torch.distributed as dist
+
+def tokenize_messages(tokenizer, messages):
+
+    states, actions, action_mask = [], [], []
+    for idx, message in enumerate(messages):
+
+        state = tokenizer.apply_chat_template(
+            messages[:idx + 1],
+            add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
+        )[len(states):]
+
+        states.extend(state)
+        actions.extend(
+            state if message["role"] == "assistant"
+            else len(state) * [0]
+        )
+        action_mask.extend(len(state) * [
+            1 if message["role"] == "assistant" else 0
+        ])
+
+    return {
+        "states": states[:-1],
+        "actions": actions[1:],
+        "action_mask": action_mask[1:],
+        "position_ids": list(range(len(states) - 1))
+    }
+
+def compute_seq_and_avg_logps(
+    batch,
+    logps,
+    device_mesh
+):
+
+    cu_seqlens = batch["cu_seqlens"]
+    partial_logps = torch.stack([
+        logps[:, start_idx:end_idx].sum()
+        for start_idx, end_idx
+        in zip(cu_seqlens[:-1], cu_seqlens[1:])
+    ])
+    logps = partial_logps.detach()
+    dist.all_reduce(
+        logps,
+        op=dist.ReduceOp.SUM,
+        group=device_mesh.get_group()
+    )
+    logps = logps + partial_logps - partial_logps.detach()
+
+    actions = torch.stack([
+        batch["action_mask"][:, start_idx:end_idx].sum()
+        for start_idx, end_idx
+        in zip(cu_seqlens[:-1], cu_seqlens[1:])
+    ])
+    dist.all_reduce(
+        actions,
+        op=dist.ReduceOp.SUM,
+        group=device_mesh.get_group()
+    )
+    avg_logps = logps / (actions + torch.finfo(logps.dtype).eps)
+
+    return logps, avg_logps
 
 def compute_kl_term(
     logps: torch.Tensor,
@@ -48,7 +109,6 @@ def compute_gae(
 
 def compute_reinforce_adv(
     data_list: List[Dict[str, torch.Tensor]],
-    responses_per_prompt: int,
     norm_var: bool
 ):
 

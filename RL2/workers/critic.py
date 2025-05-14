@@ -80,7 +80,7 @@ class Critic(Worker):
                 loss = torch.max(mse, clipped_mse).sum() / total_actions
                 clip_ratio = (mse < clipped_mse).sum() / total_actions
                 
-                loss.backward()
+                (loss * self.device_mesh.size()).backward()
 
                 metrics["critic/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["critic/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
