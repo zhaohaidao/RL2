@@ -15,7 +15,7 @@ from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm import tqdm
 from RL2.workers.base import Worker
-from RL2.algs import compute_kl_term
+from RL2.algs import tokenize_messages, compute_kl_term
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
 
@@ -135,40 +135,19 @@ class Actor(Worker):
 
     def tokenize_messages(self, ex, reward):
 
-        messages = ex["messages"]
-        states, actions, action_mask = [], [], []
-        for idx, message in enumerate(messages):
-
-            state = self.tokenizer.apply_chat_template(
-                messages[:idx + 1],
-                add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
-            )[len(states):]
-
-            states.extend(state)
-            actions.extend(
-                state if message["role"] == "assistant"
-                else len(state) * [0]
-            )
-            action_mask.extend(len(state) * [
-                1 if message["role"] == "assistant" else 0
-            ])
-
-        states = states[:-1]
-        actions = actions[1:]
-        action_mask = action_mask[1:]
-
-        rewards = (len(states) - 1) * [0] + [reward]
-        position_ids = list(range(len(states)))
-        eos_mask = (len(states) - 1) * [0] + [1]
+        ex = tokenize_messages(self.tokenizer, ex["messages"])
+        ex.update({
+            "rewards": (len(ex["states"]) - 1) * [0] + [reward],
+            "eos_mask": (len(ex["states"]) - 1) * [0] + [1]
+        })
 
         return {
             "uid": ex["uid"],
-            "states": torch.LongTensor(states).unsqueeze(0),
-            "actions": torch.LongTensor(actions).unsqueeze(0),
-            "rewards": torch.FloatTensor(rewards).unsqueeze(0),
-            "position_ids": torch.LongTensor(position_ids).unsqueeze(0),
-            "action_mask": torch.LongTensor(action_mask).unsqueeze(0),
-            "eos_mask": torch.LongTensor(eos_mask).unsqueeze(0)
+            **{
+                k: torch.LongTensor(v).unsqueeze(0).to(torch.cuda.current_device())
+                if k != "rewards" else torch.FloatTensor(v).unsqueeze(0).to(torch.cuda.current_device())
+                for k, v in ex.items()
+            }
         }
 
     def rollout(self, data_list, train: bool, step: int):
@@ -337,7 +316,7 @@ class Actor(Worker):
                     loss = loss + self.config.kl.coef * kl
                     metrics["kl"].append(self.device_mesh.size() * len(batch) * kl.item())
 
-                loss.backward() 
+                (loss * self.device_mesh.size()).backward() 
                 if self.device_mesh.get_rank() == 0:
                     tbar.update()
             grad_norm = clip_grad_norm_(

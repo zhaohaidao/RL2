@@ -1,0 +1,21 @@
+data:
+  path: null
+  max_length: null
+  batch_size: 128
+  batch_size_per_device: 1
+
+actor:
+  model_name: null
+  gradient_checkpointing: true
+  sp_size: 1
+  lr: 5e-6
+  weight_decay: 1e-2
+  max_grad_norm: 1.0
+  offload_model: false
+  save_dir: ckpts/${trainer.experiment_name}
+
+trainer:
+  project: null
+  experiment_name: null
+  n_epochs: 1
+  disable_wandb: false
