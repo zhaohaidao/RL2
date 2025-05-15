@@ -1,4 +1,4 @@
-from RL2.dataset.base import BaseDataset
+from RL2.dataset import BaseDataset
 
 
 class DPODataset(BaseDataset):

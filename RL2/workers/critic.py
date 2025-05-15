@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import torch
 from transformers import AutoModelForTokenClassification
 from tqdm import tqdm
-from RL2.workers.base import Worker
+from RL2.workers import Worker
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import sum_across_processes
 

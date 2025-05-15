@@ -1,4 +1,4 @@
-from RL2.dataset.base import BaseDataset
+from RL2.dataset import BaseDataset
 from RL2.algs import tokenize_messages
 
 class SFTDataset(BaseDataset):

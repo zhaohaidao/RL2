@@ -3,9 +3,9 @@ from collections import defaultdict
 from torch.nn.utils import clip_grad_norm_
 from transformers import AutoTokenizer
 from tqdm import tqdm
-from RL2.trainer.base import Trainer
-from RL2.dataset.sft import SFTDataset
-from RL2.workers.actor import Actor
+from RL2.trainer import Trainer
+from RL2.dataset import SFTDataset
+from RL2.workers import Actor
 from RL2.algs import compute_seq_and_avg_logps
 from RL2.utils.comm import initialize_global_process_group
 

@@ -9,7 +9,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=read_requirements('requirements.txt'),
-    python_requires='>=3.10.14',
+    python_requires='>=3.10',
     author="Chenmien Tan, Simon Yu, Lanbo Lin, Ze Zhang, Yuanwu Xu, Chenhao Jiang, Tianyuan Yang, Sicong Xie",
     author_email="chenmientan@outlook.com",
     description="RL2: Ray Less Reinforcement Learning",
