@@ -14,7 +14,7 @@ from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm import tqdm
-from RL2.workers.base import Worker
+from RL2.workers import Worker
 from RL2.algs import tokenize_messages, compute_kl_term
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes

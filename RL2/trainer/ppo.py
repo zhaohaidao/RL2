@@ -1,8 +1,7 @@
 import hydra
-from RL2.trainer.base import Trainer
-from RL2.dataset.rl import RLDataset
-from RL2.workers.actor import Actor
-from RL2.workers.critic import Critic
+from RL2.trainer import Trainer
+from RL2.dataset import RLDataset
+from RL2.workers import Actor, Critic
 from RL2.algs import (
     compute_gae,
     compute_reinforce_adv
