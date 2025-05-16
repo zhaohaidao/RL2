@@ -3,6 +3,9 @@ import os
 import math
 import torch
 import torch.distributed as dist
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions, get_model_state_dict
+)
 import wandb
 from RL2.utils.fsdp import (
     shard_model,
@@ -372,10 +375,10 @@ class Worker:
 
         path = f"{self.config.save_dir}/step{step}"
         os.makedirs(path, exist_ok=True)
-        options = dist.checkpoint.state_dict.StateDictOptions(
+        options = StateDictOptions(
             full_state_dict=True, cpu_offload=True
         )
-        state_dict = dist.checkpoint.state_dict.get_model_state_dict(
+        state_dict = get_model_state_dict(
             self.model, options=options
         )
         if self.device_mesh.get_rank() == 0:
