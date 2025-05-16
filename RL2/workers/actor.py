@@ -8,7 +8,8 @@ from collections import defaultdict
 import torch
 import torch.distributed as dist
 from torch.nn.utils import clip_grad_norm_
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
+from liger_kernel.transformers import AutoLigerKernelForCausalLM
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
@@ -25,7 +26,7 @@ class Actor(Worker):
     def __init__(self, config, device_mesh, train: bool):
         super().__init__(config, device_mesh, train)
         
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoLigerKernelForCausalLM.from_pretrained(
             config.model_name,
             attn_implementation="flash_attention_2"
         )
