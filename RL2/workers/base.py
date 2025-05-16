@@ -6,6 +6,7 @@ import torch.distributed as dist
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
+from peft import LoraConfig, TaskType, get_peft_model
 import wandb
 from RL2.utils.fsdp import (
     shard_model,
@@ -36,6 +37,19 @@ class Worker:
         )
 
     def prepare_model_optimizer(self):
+
+        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            self.model.enable_input_require_grads()
+
+            lora_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM,
+                r=self.config.lora.rank,
+                lora_alpha=self.config.lora.alpha,
+                target_modules=self.config.lora.target_modules,
+                lora_dropout=self.config.lora.dropout,
+                bias="none"
+            )
+            self.model = get_peft_model(self.model, lora_config)
 
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
