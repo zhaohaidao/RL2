@@ -14,6 +14,12 @@ actor:
   offload_model: false
   save_dir: ckpts/${trainer.experiment_name}
 
+  lora:
+    rank: 0
+    alpha: 16
+    target_modules: all-linear
+    dropout: 0
+
 trainer:
   project: null
   experiment_name: null
