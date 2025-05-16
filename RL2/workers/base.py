@@ -370,12 +370,20 @@ class Worker:
 
     def save(self, step):
 
-        os.makedirs(f"{self.config.save_dir}/step{step}", exist_ok=True)
-        torch.save(
-            self.model.state_dict(),
-            f"{self.config.save_dir}/step{step}/model_rank{self.device_mesh.get_rank()}.pt"
+        path = f"{self.config.save_dir}/step{step}"
+        os.makedirs(path, exist_ok=True)
+        options = dist.checkpoint.state_dict.StateDictOptions(
+            full_state_dict=True, cpu_offload=True
         )
+        state_dict = dist.checkpoint.state_dict.get_model_state_dict(
+            self.model, options=options
+        )
+        if self.device_mesh.get_rank() == 0:
+            self.model.save_pretrained(
+                path, state_dict=state_dict
+            )
+
         torch.save(
             self.optimizer.state_dict(),
-            f"{self.config.save_dir}/step{step}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+            f"{path}/optimizer_rank{self.device_mesh.get_rank()}.pt"
         )
