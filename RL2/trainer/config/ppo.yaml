@@ -27,6 +27,7 @@ actor:
     n_turns: 1
     max_response_length: null
     env_url: null
+    tool_path: null
     reward_fn_path: null
     multi_thread_scoring: true
 

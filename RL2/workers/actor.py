@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple
 import os
+import json
 import asyncio
 import requests
 import importlib
@@ -74,6 +75,12 @@ class Actor(Worker):
                 self.config.model_name
             )
 
+            if self.config.rollout.tool_path is not None:
+                with open(self.config.rollout.tool_path) as f:
+                    self.tool = json.load(f)
+            else:
+                self.tool = None
+
             self.llm = Engine(
                 model_path=self.config.model_name,
                 dtype="bfloat16",
@@ -100,7 +107,7 @@ class Actor(Worker):
         for turn in range(self.config.rollout.n_turns):
 
             prompt = self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False
+                messages, tool=self.tool, add_generation_prompt=True, tokenize=False
             )
             response = await self.llm.async_generate(
                 prompt, sampling_params=self.train_sampling_params if train else self.test_sampling_params
@@ -122,7 +129,7 @@ class Actor(Worker):
             # the model may call multiple tools simultaneously. An empty 
             # list should be returned if no function is called.
             env_messages = requests.post(
-                self.config.env_url, json=messages
+                self.config.rollout.env_url, json=messages
             ).json()
 
             # Terminate if no tool is invoked.
@@ -136,18 +143,19 @@ class Actor(Worker):
 
     def tokenize_messages(self, ex, reward):
 
-        ex = tokenize_messages(self.tokenizer, ex["messages"])
-        ex.update({
-            "rewards": (len(ex["states"]) - 1) * [0] + [reward],
-            "eos_mask": (len(ex["states"]) - 1) * [0] + [1]
+        tokenized_ex = tokenize_messages(self.tokenizer, ex["messages"])
+        tokenized_ex.update({
+            "rewards": (len(tokenized_ex["states"]) - 1) * [0] + [reward],
+            "eos_mask": (len(tokenized_ex["states"]) - 1) * [0] + [1]
         })
 
         return {
             "uid": ex["uid"],
             **{
-                k: torch.LongTensor(v).unsqueeze(0).to(torch.cuda.current_device())
-                if k != "rewards" else torch.FloatTensor(v).unsqueeze(0).to(torch.cuda.current_device())
-                for k, v in ex.items()
+                k: torch.LongTensor(v).unsqueeze(0)
+                if k != "rewards"
+                else torch.FloatTensor(v).unsqueeze(0)
+                for k, v in tokenized_ex.items()
             }
         }
 
