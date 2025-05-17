@@ -17,7 +17,7 @@ actor:
   offload_model: true
   offload_optimizer: true
   save_dir: ckpts/${trainer.experiment_name}/actor
-  save_freq: -1
+  save_freq: null
 
   rollout:
     tp_size: 1
