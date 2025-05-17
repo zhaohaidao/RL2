@@ -337,7 +337,7 @@ class Actor(Worker):
             self.optimizer.zero_grad()
 
         self.log(metrics, step)
-        if (step + 1) % self.config.save_freq == 0:
+        if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
 
         self.offload_optimizer_to_cpu()
