@@ -1,6 +1,5 @@
 from typing import Dict, List
 from collections import defaultdict
-from contextlib import nullcontext
 import torch
 from transformers import AutoModelForTokenClassification
 from tqdm import tqdm

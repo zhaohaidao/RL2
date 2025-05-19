@@ -18,6 +18,7 @@ actor:
   offload_optimizer: true
   save_dir: ckpts/${trainer.experiment_name}/actor
   save_freq: null
+  save_optimizer: false
 
   rollout:
     tp_size: 1
@@ -56,6 +57,7 @@ critic:
   offload_optimizer: true
   save_dir: ckpts/${trainer.experiment_name}/critic
   save_freq: ${actor.save_freq}
+  save_optimizer: ${actor.save_optimizer}
 
 adv:
   estimator: null # `reinforce` or `gae`
