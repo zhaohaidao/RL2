@@ -9,7 +9,6 @@ from collections import defaultdict
 import torch
 import torch.distributed as dist
 from torch.nn.utils import clip_grad_norm_
-from transformers import AutoTokenizer
 from liger_kernel.transformers import AutoLigerKernelForCausalLM
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
@@ -70,10 +69,6 @@ class Actor(Worker):
 
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.config.model_name
-            )
 
             if self.config.rollout.tool_path is not None:
                 with open(self.config.rollout.tool_path) as f:

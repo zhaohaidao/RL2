@@ -6,6 +6,7 @@ import torch.distributed as dist
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
+from transformers import AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 import wandb
 from RL2.utils.fsdp import (
@@ -34,6 +35,10 @@ class Worker:
                 device_mesh.size() // config.sp_size,
                 config.sp_size
             )
+        )
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.config.model_name
         )
 
     def prepare_model_optimizer(self):
@@ -396,11 +401,13 @@ class Worker:
             self.model, options=options
         )
         if self.device_mesh.get_rank() == 0:
+            self.tokenizer.save_pretrained(path)
             self.model.save_pretrained(
                 path, state_dict=state_dict
             )
 
-        torch.save(
-            self.optimizer.state_dict(),
-            f"{path}/optimizer_rank{self.device_mesh.get_rank()}.pt"
-        )
+        if self.config.save_optimizer:
+            torch.save(
+                self.optimizer.state_dict(),
+                f"{path}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+            )
