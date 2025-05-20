@@ -53,7 +53,6 @@ class Critic(Worker):
 
     def update(self, data_list: List[Dict[str, torch.Tensor]], step: int):
         # Model has been loaded in `compute_values`. See `Trainer.train`.
-        self.load_optimizer_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
@@ -91,12 +90,10 @@ class Critic(Worker):
                 max_norm=self.config.max_grad_norm
             )
             metrics["critic/grad_norm"].append(grad_norm.full_tensor().item())
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            self.optimizer_step()
 
         self.log(metrics, step)
         if (step + 1) % self.config.save_freq == 0:
             self.save(step)
 
         self.offload_model_to_cpu()
-        self.offload_optimizer_to_cpu()

@@ -89,9 +89,7 @@ class DPOTrainer(Trainer):
                         max_norm=self.actor.config.max_grad_norm
                     )
                     metrics["grad_norm"].append(grad_norm.full_tensor().item())
-                    self.actor.optimizer.step()
-                    self.actor.optimizer.zero_grad()
-
+                    self.actor.optimizer_step()
                     self.actor.log(metrics, step, self.actor.sp_device_mesh["dp"])
                     metrics = defaultdict(list)
 
