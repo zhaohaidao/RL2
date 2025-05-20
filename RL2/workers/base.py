@@ -373,6 +373,12 @@ class Worker:
             return gather_and_concat_list(data_list, self.sp_device_mesh["dp"])
         else:
             return None
+        
+    def optimizer_step(self):
+        self.load_optimizer_to_gpu()
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        self.offload_optimizer_to_cpu()
 
     def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 

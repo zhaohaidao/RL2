@@ -278,7 +278,6 @@ class Actor(Worker):
 
     def update(self, data_list: List[Dict[str, torch.Tensor]], step: int):
         self.load_model_to_gpu()
-        self.load_optimizer_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
@@ -328,14 +327,12 @@ class Actor(Worker):
                 max_norm=self.config.max_grad_norm
             )
             metrics["actor/grad_norm"].append(grad_norm.full_tensor().item())
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            self.optimizer_step()
 
         self.log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
 
-        self.offload_optimizer_to_cpu()
         torch.cuda.empty_cache()
         # or llm.resume_memory_occupation() may OOM
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
