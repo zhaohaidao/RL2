@@ -16,7 +16,7 @@ torchrun \
     actor.max_length_per_device=16384 \
     actor.save_freq=32 \
     actor.rollout.max_response_length=8192 \
-    actor.rollout.env_path=envs/math.py \
+    actor.rollout.env_path=envs/orz.py \
     actor.rollout.multi_thread_scoring=false \
     adv.estimator=gae \
     trainer.project=OpenReasonerZero \
