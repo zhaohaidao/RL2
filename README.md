@@ -1,26 +1,35 @@
 # RL2: Ray Less Reinforcement Learning
 
-A consise (~1K lines) implementation for hybrid engine without complicated abstraction, where all models, i.e., actor, inference engine, reference model, and critic, are colocated to eliminate GPU idle.
-Due to the SPMD design and absence of parallel computing, the training is launched using `torchrun` rather than `ray`.
+A concise library of reinforcement learning for large language models.
 
-* Scalability: model partition by ZeRO (FSDP for flexible gradient accumulation), inference engine partition by TP, and sequence parallelism by Ring Attention (ZigZag for load balance).
+This is the right library for you if you are tired with complicated abstractions and wish to learn reinforcement learning for large language models or perform a quick test for your own algorithm.
+We deliver a clear implementation (see `RL2.trainer.ppo.PPOTrainer.train`).
+You can simply launch the training with `torchrun` as you do in supervised fine-tuning.
 
-* Efficiency: sequence packing for high throughput.
+Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
-## Upcoming Features
+* Model partition via Fully Sharded Data Parallelism
+* Sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
+* Inference engine partition via Tensor Parallelism
 
-- [ ] Reproduction wandb report for popular RL projects, e.g., OpenReasonerZero and TinyZero
-- [ ] Multi-turn rollout with function calling
-- [ ] Prefix caching in training
+We also support
+
+* Sequence packing for higher throughput
+* Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
 ## Acknowledgement
 
-This project cannot be done without [DeepSpeedChat](https://github.com/deepspeedai/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat), [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [veRL](https://github.com/volcengine/verl), and [RingFlashAttention](https://github.com/zhuzilin/ring-flash-attention).
+This project is built upon the basis of many remarkable projects, including but not limited to
+* [DeepSpeedChat](https://github.com/deepspeedai/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat) for the proposal of hybrid engine
+* [RingFlashAttention](https://github.com/zhuzilin/ring-flash-attention) for the support of ZigZag ring attention
+* [SGLang](https://github.com/sgl-project/sglang) for the support of async inference engine
+
+We also thank [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF) and [veRL](https://github.com/volcengine/verl) for their pioneering work.
 
 ## Citation
 ```
 @misc{Tan2025RL2,
-    author={Chenmien Tan and Simon Yu and Lanbo Lin and Ze Zhang and Yuanwu Xu and Chenhao Jiang and Tianyuan Yang and Sicong Xie and Guannan Zhang},
+    author={Chenmien Tan and Simon Yu and Lanbo Lin and Ze Zhang and Yuanwu Xu and Chenhao Jiang and Tianyuan Yang and Sicong Xie},
     title={RL2: Ray Less Reinforcement Learning},
     note={GitHub repository},
     howpublished={\url{https://github.com/ChenmienTan/RL2}},
