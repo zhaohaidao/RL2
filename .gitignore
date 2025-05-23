@@ -124,6 +124,9 @@ Thumbs.db
 ehthumbs.db
 
 ckpts/
+data/e5_Flat.index
+data/wiki-18.jsonl
+data/ultrafeedback.json
 outputs/
 wandb/
 core-*
