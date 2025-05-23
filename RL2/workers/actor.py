@@ -16,7 +16,8 @@ from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm import tqdm
 from RL2.workers import Worker
-from RL2.algs import tokenize_messages, compute_kl_term
+from RL2.dataset import tokenize_messages
+from RL2.algs import compute_kl_term
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
 
