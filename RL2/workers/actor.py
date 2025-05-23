@@ -34,17 +34,14 @@ class Actor(Worker):
         
         self.prepare_model_optimizer()
         if hasattr(config, "rollout") and train:
-            self.prepare_reward_fn()
+            self.prepare_environment()
             self.prepare_inference_engine()
-    
-    def prepare_reward_fn(self):
 
-        spec = importlib.util.spec_from_file_location(
-            "custom_module", self.config.rollout.reward_fn_path
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.reward_fn = module.reward_fn
+    def prepare_environment(self):
+
+        spec = importlib.util.spec_from_file_location("custom_module", self.config.rollout.env_path)
+        self.env = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.env)
 
     def prepare_inference_engine(self):
 
@@ -70,12 +67,6 @@ class Actor(Worker):
 
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-
-            if self.config.rollout.tool_path is not None:
-                with open(self.config.rollout.tool_path) as f:
-                    self.tool = json.load(f)
-            else:
-                self.tool = None
 
             self.llm = Engine(
                 model_path=self.config.model_name,
@@ -103,7 +94,10 @@ class Actor(Worker):
         for turn in range(self.config.rollout.n_turns):
 
             prompt = self.tokenizer.apply_chat_template(
-                messages, tool=self.tool, add_generation_prompt=True, tokenize=False
+                messages,
+                tool=getattr(self.env, "TOOL", None),
+                add_generation_prompt=True,
+                tokenize=False
             )
             response = await self.llm.async_generate(
                 prompt, sampling_params=self.train_sampling_params if train else self.test_sampling_params
@@ -120,14 +114,7 @@ class Actor(Worker):
             if turn + 1 == self.config.rollout.n_turns:
                 break
 
-            # The environment should be launched as a service which 
-            # receives previous messages return a *list of messages*, as 
-            # the model may call multiple tools simultaneously. An empty 
-            # list should be returned if no function is called.
-            env_messages = requests.post(
-                self.config.rollout.env_url, json=messages
-            ).json()
-
+            env_messages = self.env.interact(messages)
             # Terminate if no tool is invoked.
             if len(env_messages) == 0:
                 break
@@ -182,13 +169,13 @@ class Actor(Worker):
             if self.config.rollout.multi_thread_scoring:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     rewards = list(executor.map(
-                        lambda ex: self.reward_fn(ex["messages"], ex["answer"]),
+                        lambda ex: self.env.reward_fn(ex["messages"], ex["answer"]),
                         data_list
                     ))
             else:
                 # Math-Verify is thread-unsafe. See https://github.com/huggingface/Math-Verify/issues/42.
                 rewards = [
-                    self.reward_fn(ex["messages"], ex["answer"])
+                    self.env.reward_fn(ex["messages"], ex["answer"])
                     for ex in data_list
                 ]
 
