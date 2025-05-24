@@ -58,7 +58,7 @@ class Actor(Worker):
         cuda_visible_devices = self.rollout_device_mesh["tp"].size() * [None]
         dist.all_gather_object(
             cuda_visible_devices,
-            os.environ["RANK"],
+            os.environ["LOCAL_RANK"],
             self.rollout_device_mesh["tp"].get_group()
         )
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
