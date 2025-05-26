@@ -16,15 +16,15 @@ class Trainer:
             mesh_shape=(world_size,)
         )
 
-        if not config.trainer.disable_wandb:
-            if self.device_mesh.get_rank() == 0:
+        if self.device_mesh.get_rank() == 0:
+            if not config.trainer.disable_wandb:
                 wandb.init(
                     project=config.trainer.project,
                     name=config.trainer.experiment_name,
                     config=OmegaConf.to_container(config)
                 )
-        else:
-            wandb.log = lambda *args, **kwargs: None
+            else:
+                wandb.log = lambda *args, **kwargs: None
 
     def prepare_sampler_dataloader(
         self,

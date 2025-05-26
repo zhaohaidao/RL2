@@ -204,7 +204,7 @@ class Actor(Worker):
                 self.rollout_device_mesh["dp"]
             )
 
-    def forward(self, minibatch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, minibatch) -> torch.Tensor:
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
@@ -225,11 +225,7 @@ class Actor(Worker):
         ).squeeze(-1) * minibatch["action_mask"]
 
     @torch.no_grad()
-    def compute_logps(
-        self,
-        data_list: List[Dict[str, torch.Tensor]],
-        step: int
-    ) -> List[Dict[str, torch.Tensor]]:
+    def compute_logps(self, data_list, step):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list, False)
 
@@ -262,7 +258,7 @@ class Actor(Worker):
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
 
-    def update(self, data_list: List[Dict[str, torch.Tensor]], step: int):
+    def update(self, data_list, step: int):
         self.load_model_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
@@ -290,12 +286,12 @@ class Actor(Worker):
                 loss = - torch.min(objective, clipped_objective).sum() / total_actions
                 clip_ratio = (objective > clipped_objective).sum() / total_actions
 
+                # The losses on each device (resp. of minibatches 
+                # within a batch) are accumulated but the value 
+                # will be averaged in `Worker.log`. Therefore 
+                # we multiply the world size (resp. bsz) here to 
+                # get the correct value.
                 metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
-                # The losses on different data processes (resp. 
-                # of minibatches within a batch) are accumulated 
-                # but the value will be averaged in `Worker.log`. 
-                # Therefore we multiply the world size (resp. bsz) 
-                # here to get the correct value.
                 metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":

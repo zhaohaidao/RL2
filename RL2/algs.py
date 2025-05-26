@@ -1,4 +1,3 @@
-from typing import List, Dict
 from collections import defaultdict
 import torch
 import torch.distributed as dist
@@ -55,11 +54,7 @@ def compute_kl_term(
     else:
         raise NotImplementedError
 
-def compute_gae(
-    data_list: List[Dict[str, torch.Tensor]],
-    gamma: float,
-    lamda: float
-):
+def compute_gae(data_list, gamma: float, lamda: float):
 
     for ex in data_list:
 
@@ -82,10 +77,7 @@ def compute_gae(
         ex["advantages"] = torch.FloatTensor([gaes])
         ex["returns"] = ex["advantages"] + ex["values"]
 
-def compute_reinforce_adv(
-    data_list: List[Dict[str, torch.Tensor]],
-    norm_var: bool
-):
+def compute_reinforce_adv(data_list, norm_var: bool):
 
     rewards = [ex["rewards"].sum() for ex in data_list]
 
