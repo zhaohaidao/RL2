@@ -7,7 +7,8 @@ from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
-from transformers import AutoTokenizer
+import transformers
+from accelerate import init_empty_weights
 from peft import LoraConfig, TaskType, get_peft_model
 import wandb
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
@@ -31,7 +32,7 @@ class Worker:
             )
         )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
             self.config.model_name
         )
 
@@ -54,15 +55,15 @@ class Worker:
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
-        mixed_precision_policy = MixedPrecisionPolicy(
-            param_dtype=torch.bfloat16,
-            reduce_dtype=torch.bfloat16,
-            output_dtype=torch.bfloat16
-        )
         kwargs = {
-            "mp_policy": mixed_precision_policy,
             "mesh": self.device_mesh
         }
+        if self.train:
+            kwargs["mp_policy"] = MixedPrecisionPolicy(
+                param_dtype=torch.bfloat16,
+                reduce_dtype=torch.bfloat16,
+                output_dtype=torch.bfloat16
+            )
         for module in self.model.modules():
             if module.__class__.__name__ in self.model._no_split_modules or (isinstance(module, torch.nn.Embedding) and not self.model.config.tie_word_embeddings):
                 fully_shard(module, **kwargs)
@@ -294,8 +295,19 @@ class Worker:
             self.model, options=options
         )
         if self.device_mesh.get_rank() == 0:
+
             self.tokenizer.save_pretrained(path)
-            self.model.save_pretrained(
+
+            state_dict = {
+                k: v.to(torch.bfloat16) for k, v in state_dict.items()
+            }
+            model_cls = getattr(
+                transformers,
+                self.model.__class__.__name__.removeprefix("FSDP")
+            )
+            with init_empty_weights():
+                model_to_save = model_cls._from_config(self.model.config)
+            model_to_save.save_pretrained(
                 path, state_dict=state_dict
             )
 

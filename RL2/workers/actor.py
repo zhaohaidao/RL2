@@ -27,6 +27,7 @@ class Actor(Worker):
         
         self.model = AutoLigerKernelForCausalLM.from_pretrained(
             config.model_name,
+            torch_dtype=torch.float32 if train else torch.bfloat16,
             attn_implementation="flash_attention_2"
         )
         
