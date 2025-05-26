@@ -1,7 +1,7 @@
 torchrun \
     --standalone \
     --nnodes=1 \
-    --nproc_per_node=4 \
+    --nproc_per_node=8 \
     -m RL2.trainer.ppo \
     data.train_data_path=data/orz.json \
     data.test_data_path=data/olympiadbench.json \
@@ -19,5 +19,4 @@ torchrun \
     adv.estimator=reinforce \
     trainer.project=OpenReasonerZero \
     trainer.experiment_name=qwen2.5-7b-reinforce \
-    trainer.test_freq=8 \
-    trainer.disable_wandb=true
+    trainer.test_freq=8
