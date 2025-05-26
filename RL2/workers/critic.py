@@ -22,7 +22,7 @@ class Critic(Worker):
 
         self.prepare_model_optimizer()
 
-    def forward(self, minibatch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, minibatch) -> torch.Tensor:
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
@@ -34,11 +34,7 @@ class Critic(Worker):
         ).logits.squeeze(-1) * minibatch["action_mask"]
 
     @torch.no_grad()
-    def compute_values(
-        self,
-        data_list: List[Dict[str, torch.Tensor]],
-        step: int
-    ) -> List[Dict[str, torch.Tensor]]:
+    def compute_values(self, data_list, step):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list, False)
 
@@ -52,7 +48,7 @@ class Critic(Worker):
         # No need to offload model because it will be updated soon. See `Trainer.train`.
         return self.resume_and_gather_data_list(minibatches)
 
-    def update(self, data_list: List[Dict[str, torch.Tensor]], step: int):
+    def update(self, data_list, step: int):
         # Model has been loaded in `compute_values`. See `Trainer.train`.
         batches = self.scatter_and_pack_data_list(data_list, True)
 
@@ -94,7 +90,7 @@ class Critic(Worker):
             self.optimizer_step()
 
         self.log(metrics, step)
-        if (step + 1) % self.config.save_freq == 0:
+        if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
 
         self.offload_model_to_cpu()

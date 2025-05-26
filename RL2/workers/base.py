@@ -3,19 +3,13 @@ import os
 import math
 import torch
 import torch.distributed as dist
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
 from transformers import AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 import wandb
-from RL2.utils.fsdp import (
-    shard_model,
-    offload_fsdp_model_to_cpu,
-    load_fsdp_model_to_gpu,
-    offload_fsdp_optimizer,
-    load_fsdp_optimizer
-)
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
 from RL2.utils.comm import gather_and_concat_list
         
@@ -60,7 +54,19 @@ class Worker:
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
-        shard_model(self.model, self.device_mesh)
+        mixed_precision_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.bfloat16,
+            output_dtype=torch.bfloat16
+        )
+        kwargs = {
+            "mp_policy": mixed_precision_policy,
+            "mesh": self.device_mesh
+        }
+        for module in self.model.modules():
+            if module.__class__.__name__ in self.model._no_split_modules or (isinstance(module, torch.nn.Embedding) and not self.model.config.tie_word_embeddings):
+                fully_shard(module, **kwargs)
+        fully_shard(self.model, **kwargs) 
 
         if self.train:
             self.optimizer = torch.optim.AdamW(
@@ -71,21 +77,19 @@ class Worker:
 
         self.offload_model_to_cpu()
 
+    @torch.no_grad()
     def offload_model_to_cpu(self):
         if self.config.offload_model:
-            offload_fsdp_model_to_cpu(self.model)
+            for param in self.model.parameters():
+                param.data = param.data.to("cpu", non_blocking=True)
     
+    @torch.no_grad()
     def load_model_to_gpu(self):
         if self.config.offload_model:
-            load_fsdp_model_to_gpu(self.model)
-
-    def offload_optimizer_to_cpu(self):
-        if self.config.offload_optimizer:
-            offload_fsdp_optimizer(self.optimizer)
-
-    def load_optimizer_to_gpu(self):
-        if self.config.offload_optimizer:
-            load_fsdp_optimizer(self.optimizer, torch.cuda.current_device())
+            for param in self.model.parameters():
+                param.data = param.data.to(
+                    torch.cuda.current_device(), non_blocking=True
+                )
 
     def scatter_and_pack_data_list(self, data_list, train: bool):
 
@@ -193,9 +197,7 @@ class Worker:
         
         return minibatches
 
-    def resume_and_gather_data_list(
-        self, minibatches: List[Dict[str, torch.Tensor]]
-    ):
+    def resume_and_gather_data_list(self, minibatches):
 
         data_list = []
         for minibatch in minibatches:
@@ -241,19 +243,36 @@ class Worker:
             )
         else:
             return None
-        
+    
+    @torch.no_grad()
     def optimizer_step(self):
-        self.load_optimizer_to_gpu()
+
+        if self.config.offload_optimizer and self.optimizer.state:
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    state = self.optimizer.state[param]
+                    for key, value in state.items():
+                        if isinstance(value, torch.Tensor):
+                            state[key] = value.to(
+                                torch.cuda.current_device(), non_blocking=True
+                            )
+
         self.optimizer.step()
         self.optimizer.zero_grad()
-        self.offload_optimizer_to_cpu()
+
+        if self.config.offload_optimizer:
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    state = self.optimizer.state[param]
+                    for key, value in state.items():
+                        if isinstance(value, torch.Tensor):
+                            state[key] = value.to("cpu", non_blocking=True)
 
     def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 
         metrics = {
             k: gather_and_concat_list(
-                v,
-                device_mesh if device_mesh is not None else self.device_mesh
+                v, device_mesh if device_mesh is not None else self.device_mesh
             )
             for k, v in metrics.items()
         }
