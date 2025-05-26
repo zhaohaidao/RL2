@@ -1,4 +1,5 @@
 import hydra
+import torch.distributed as dist
 from RL2.trainer import Trainer
 from RL2.dataset import RLDataset
 from RL2.workers import Actor, Critic
@@ -100,6 +101,8 @@ def main(config):
     
     trainer = PPOTrainer(config)
     trainer.train()
+
+    dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()

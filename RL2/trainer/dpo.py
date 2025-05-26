@@ -3,6 +3,7 @@ from collections import defaultdict
 from torch.nn.utils import clip_grad_norm_
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
 from transformers import AutoTokenizer
 from tqdm import tqdm
 from RL2.trainer import Trainer
@@ -103,6 +104,8 @@ def main(config):
 
     trainer = DPOTrainer(config)
     trainer.train()
+
+    dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()
