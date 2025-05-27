@@ -77,7 +77,7 @@ def compute_gae(data_list, gamma: float, lamda: float):
         ex["advantages"] = torch.FloatTensor([gaes])
         ex["returns"] = ex["advantages"] + ex["values"]
 
-def compute_reinforce_adv(data_list, norm_var: bool):
+def compute_baseline(data_list):
 
     rewards = [ex["rewards"].sum() for ex in data_list]
 
@@ -89,6 +89,12 @@ def compute_reinforce_adv(data_list, norm_var: bool):
         k: (torch.stack(v).mean() if len(v) > 1 else v[0])
         for k, v in uid2rewards.items()
     }
+
+    return rewards, uid2rewards, uid2baseline
+
+def compute_reinforce_adv(data_list, norm_var: bool):
+
+    rewards, uid2rewards, uid2baseline = compute_baseline(data_list)
     for ex, reward in zip(data_list, rewards):
         ex["advantages"] = (reward - uid2baseline[ex["uid"]]) * ex["action_mask"]
 

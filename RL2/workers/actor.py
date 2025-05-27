@@ -13,7 +13,7 @@ from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm import tqdm
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
-from RL2.algs import compute_kl_term
+from RL2.algs import compute_kl_term, compute_baseline
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
 
@@ -108,7 +108,7 @@ class Actor(Worker):
 
             meta_info = response["meta_info"]
             stat["response_length"].append(meta_info["completion_tokens"])
-            stat["response_length_clip_ratio"].append(
+            stat["length_clip_ratio"].append(
                 meta_info["finish_reason"]["type"] == "length"
             )
 
@@ -160,13 +160,38 @@ class Actor(Worker):
                 self.llm.release_memory_occupation()
 
             data_list, stats = map(list, zip(*outputs))
+            stats = {
+                k: sum([stat[k] for stat in stats], [])
+                for k in stats[0].keys()
+            }
+
+            is_length_filtered = [
+                ex["states"].shape[-1] > self.config.sp_size * self.config.max_length_per_device
+                for ex in data_list
+            ]
+            data_list = [
+                ex for ex, filtered in zip(data_list, is_length_filtered)
+                if not filtered
+            ]
+            stats["length_filtering_ratio"] = is_length_filtered
+
+            _, _, uid2baseline = compute_baseline(data_list)
+            valid_uids = [
+                uid for uid, baseline in uid2baseline.items()
+                if self.config.rollout.group_filtering.lower < baseline < self.config.rollout.group_filtering.upper
+            ]
+            is_group_filtered = [
+                ex["uid"] not in valid_uids for ex in data_list
+            ]
+            data_list = [
+                ex for ex, filtered in zip(data_list, is_length_filtered)
+                if not filtered
+            ]
+            stats["group_filtering_ratio"] = is_group_filtered
             
             suffix = "train" if train else "test"
             self.log(
-                {
-                    f"{k}/{suffix}": sum([stat[k] for stat in stats], [])
-                    for k in stats[0].keys()
-                },
+                {f"{k}/{suffix}": v for k, v in stats.items()},
                 step=step,
                 device_mesh=self.rollout_device_mesh["dp"]
             )
