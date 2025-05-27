@@ -90,7 +90,7 @@ class Actor(Worker):
     async def single_rollout(self, ex, train):
 
         uid, messages, answer = ex["uid"], ex["messages"], ex["answer"]
-        stat = defaultdict(list)
+        metric = defaultdict(list)
         for turn in range(self.config.rollout.n_turns):
 
             prompt = self.tokenizer.apply_chat_template(
@@ -107,8 +107,8 @@ class Actor(Worker):
             )
 
             meta_info = response["meta_info"]
-            stat["response_length"].append(meta_info["completion_tokens"])
-            stat["length_clip_ratio"].append(
+            metric["response_length"].append(meta_info["completion_tokens"])
+            metric["length_clip_ratio"].append(
                 meta_info["finish_reason"]["type"] == "length"
             )
 
@@ -125,8 +125,8 @@ class Actor(Worker):
 
         reward = self.env.reward_fn(messages, answer)
 
-        stat["n_turns"].append(turn + 1)
-        stat["rewards"].append(reward)
+        metric["n_turns"].append(turn + 1)
+        metric["rewards"].append(reward)
 
         ex = tokenize_messages(self.tokenizer, messages)
         ex.update({
@@ -142,7 +142,7 @@ class Actor(Worker):
             }
         }
 
-        return ex, stat
+        return ex, metric
 
     def rollout(self, data_list, train: bool, step: int):
 
@@ -159,10 +159,10 @@ class Actor(Worker):
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
 
-            data_list, stats = map(list, zip(*outputs))
-            stats = {
-                k: sum([stat[k] for stat in stats], [])
-                for k in stats[0].keys()
+            data_list, metrics = map(list, zip(*outputs))
+            metrics = {
+                k: sum([metric[k] for metric in metrics], [])
+                for k in metrics[0].keys()
             }
 
             is_length_filtered = [
@@ -173,7 +173,7 @@ class Actor(Worker):
                 ex for ex, filtered in zip(data_list, is_length_filtered)
                 if not filtered
             ]
-            stats["length_filtering_ratio"] = is_length_filtered
+            metrics["length_filtering_ratio"] = is_length_filtered
 
             _, _, uid2baseline = compute_baseline(data_list)
             valid_uids = [
@@ -187,11 +187,11 @@ class Actor(Worker):
                 ex for ex, filtered in zip(data_list, is_length_filtered)
                 if not filtered
             ]
-            stats["group_filtering_ratio"] = is_group_filtered
+            metrics["group_filtering_ratio"] = is_group_filtered
             
             suffix = "train" if train else "test"
             self.log(
-                {f"{k}/{suffix}": v for k, v in stats.items()},
+                {f"{k}/{suffix}": v for k, v in metrics.items()},
                 step=step,
                 device_mesh=self.rollout_device_mesh["dp"]
             )
@@ -243,6 +243,12 @@ class Actor(Worker):
         ):
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
+            if self.train:
+                entropy = - minibatch["old_logps"].sum() / total_actions
+                metrics["entropy"].append(
+                    self.device_mesh.size() * len(minibatches) * entropy.item()
+                )
+
             if not self.train and self.config.kl.type == "reward":
                 kl_term = compute_kl_term(
                     minibatch["old_logps"],
@@ -251,7 +257,9 @@ class Actor(Worker):
                 )
                 minibatch["rewards"] -= self.config.kl.coef * kl_term
                 kl = kl_term.sum() / total_actions
-                metrics["kl"].append(self.device_mesh.size() * len(minibatches) * kl.item())
+                metrics["kl"].append(
+                    self.device_mesh.size() * len(minibatches) * kl.item()
+                )
 
         self.log(metrics, step)
 
