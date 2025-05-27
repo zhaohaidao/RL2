@@ -8,7 +8,6 @@ from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
 import transformers
-from accelerate import init_empty_weights
 from peft import LoraConfig, TaskType, get_peft_model
 import wandb
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
@@ -305,7 +304,7 @@ class Worker:
                 transformers,
                 self.model.__class__.__name__.removeprefix("FSDP")
             )
-            with init_empty_weights():
+            with torch.device("meta"):
                 model_to_save = model_cls._from_config(self.model.config)
             model_to_save.save_pretrained(
                 path, state_dict=state_dict
