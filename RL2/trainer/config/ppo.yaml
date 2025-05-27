@@ -28,7 +28,6 @@ actor:
     n_turns: 1
     max_response_length: null
     env_path: null
-    multi_thread_scoring: true
 
   kl:
     coef: 0.0

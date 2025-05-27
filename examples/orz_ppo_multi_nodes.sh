@@ -17,7 +17,6 @@ torchrun \
     actor.save_freq=32 \
     actor.rollout.max_response_length=8192 \
     actor.rollout.env_path=envs/orz.py \
-    actor.rollout.multi_thread_scoring=false \
     adv.estimator=gae \
     trainer.project=OpenReasonerZero \
     trainer.experiment_name=qwen2.5-7b-ppo \

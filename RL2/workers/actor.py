@@ -1,8 +1,6 @@
-from typing import Dict, List, Tuple
 import os
 import asyncio
 import importlib
-import concurrent.futures
 from collections import defaultdict
 import torch
 import torch.distributed as dist
@@ -38,7 +36,9 @@ class Actor(Worker):
 
     def prepare_environment(self):
 
-        spec = importlib.util.spec_from_file_location("custom_module", self.config.rollout.env_path)
+        spec = importlib.util.spec_from_file_location(
+            "custom_module", self.config.rollout.env_path
+        )
         self.env = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.env)
 
@@ -87,8 +87,9 @@ class Actor(Worker):
 
         dist.barrier()
 
-    async def single_rollout(self, messages, train):
+    async def single_rollout(self, ex, train):
 
+        uid, messages, answer = ex["uid"], ex["messages"], ex["answer"]
         stat = defaultdict(list)
         for turn in range(self.config.rollout.n_turns):
 
@@ -107,7 +108,9 @@ class Actor(Worker):
 
             meta_info = response["meta_info"]
             stat["response_length"].append(meta_info["completion_tokens"])
-            stat["rollout_length_clip_ratio"].append(meta_info["finish_reason"]["type"] == "length")
+            stat["response_length_clip_ratio"].append(
+                meta_info["finish_reason"]["type"] == "length"
+            )
 
             # Do not invoke tools in the last turn.
             if turn + 1 == self.config.rollout.n_turns:
@@ -120,78 +123,49 @@ class Actor(Worker):
 
             messages.extend(env_messages)
 
+        reward = self.env.reward_fn(messages, answer)
+
         stat["n_turns"].append(turn + 1)
-        return stat
+        stat["rewards"].append(reward)
 
-    def tokenize_messages(self, ex, reward):
-
-        tokenized_ex = tokenize_messages(self.tokenizer, ex["messages"])
-        tokenized_ex.update({
-            "rewards": (len(tokenized_ex["states"]) - 1) * [0] + [reward],
-            "eos_mask": (len(tokenized_ex["states"]) - 1) * [0] + [1]
+        ex = tokenize_messages(self.tokenizer, messages)
+        ex.update({
+            "rewards": (len(ex["states"]) - 1) * [0] + [reward],
+            "eos_mask": (len(ex["states"]) - 1) * [0] + [1]
         })
-
-        return {
-            "uid": ex["uid"],
+        ex = {
+            "uid": uid,
             **{
-                k: torch.LongTensor(v).unsqueeze(0)
-                if k != "rewards"
+                k: torch.LongTensor(v).unsqueeze(0) if k != "rewards"
                 else torch.FloatTensor(v).unsqueeze(0)
-                for k, v in tokenized_ex.items()
+                for k, v in ex.items()
             }
         }
+
+        return ex, stat
 
     def rollout(self, data_list, train: bool, step: int):
 
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
 
             loop = asyncio.get_event_loop()
-            stats: Tuple[Dict[List]] = loop.run_until_complete(
+            outputs = loop.run_until_complete(
                 asyncio.gather(*(
-                    self.single_rollout(ex["messages"], train)
+                    self.single_rollout(ex, train)
                     for ex in data_list
                 ))
             )
-            stats: Dict[List] = {
-                k: sum([stat[k] for stat in stats], [])
-                for k in stats[0].keys()
-            }
-
             if train:
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
-        
-        dist.barrier()
 
-        if self.rollout_device_mesh["tp"].get_local_rank() == 0:
-
-            if self.config.rollout.multi_thread_scoring:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    rewards = list(executor.map(
-                        lambda ex: self.env.reward_fn(ex["messages"], ex["answer"]),
-                        data_list
-                    ))
-            else:
-                # Math-Verify is thread-unsafe. See https://github.com/huggingface/Math-Verify/issues/42.
-                rewards = [
-                    self.env.reward_fn(ex["messages"], ex["answer"])
-                    for ex in data_list
-                ]
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                data_list = list(executor.map(
-                    lambda ex, reward: self.tokenize_messages(ex, reward),
-                    data_list, rewards
-                ))
+            data_list, stats = map(list, zip(*outputs))
             
             suffix = "train" if train else "test"
             self.log(
                 {
-                    f"reward/{suffix}": rewards,
-                    **{
-                        f"{prefix}/{suffix}": v
-                        for prefix, v in stats.items()
-                    }
+                    f"{k}/{suffix}": sum([stat[k] for stat in stats], [])
+                    for k in stats[0].keys()
                 },
                 step=step,
                 device_mesh=self.rollout_device_mesh["dp"]
