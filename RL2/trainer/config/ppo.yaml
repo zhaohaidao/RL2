@@ -28,6 +28,9 @@ actor:
     n_turns: 1
     max_response_length: null
     env_path: null
+    group_filtering:
+      lower: 0.0
+      upper: 1.0
 
   kl:
     coef: 0.0
