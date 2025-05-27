@@ -55,7 +55,10 @@ class Critic(Worker):
         self.model.train()
         metrics = defaultdict(list)
         if self.device_mesh.get_rank() == 0:
-            tbar = tqdm(total=len(batches) * len(batches[0]), desc=f"Step {step + 1}, update critic")
+            tbar = tqdm(
+                total=sum([len(batch) for batch in batches]),
+                desc=f"Step {step + 1}, update critic"
+            )
         for batch in batches:
 
             total_actions = sum_across_processes(

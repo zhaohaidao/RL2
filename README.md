@@ -3,14 +3,14 @@
 A concise library of reinforcement learning for large language models.
 
 This is the right library for you if you are tired with complicated abstractions and wish to learn reinforcement learning for large language models or perform a quick test for your own algorithm.
-We deliver a clear implementation (see `RL2.trainer.ppo.PPOTrainer.train`).
+We deliver a clear implementation (see `RL2.trainer.ppo.PPOTrainer.train`) within 1K lines.
 You can simply launch the training with `torchrun` as you do in supervised fine-tuning (see `examples/orz_reinforce.sh`).
 
 Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
 * Model partition via Fully Sharded Data Parallelism
 * Sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
-* Inference engine partition via Tensor Parallelism
+* Inference engine and KV cache partition via Tensor Parallelism
 
 We also support
 
