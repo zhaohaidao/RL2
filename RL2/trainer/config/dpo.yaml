@@ -6,6 +6,7 @@ data:
 
 actor:
   model_name: null
+  ref_model_name: ${actor.model_name}
   gradient_checkpointing: true
   sp_size: 1
   lr: 5e-7
