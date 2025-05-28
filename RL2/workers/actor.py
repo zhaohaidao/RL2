@@ -248,18 +248,18 @@ class Actor(Worker):
                 metrics["entropy"].append(
                     self.device_mesh.size() * len(minibatches) * entropy.item()
                 )
-
-            if not self.train and self.config.kl.type == "reward":
+            else:
                 kl_term = compute_kl_term(
                     minibatch["old_logps"],
                     minibatch["ref_logps"],
                     self.config.kl.estimator
                 )
-                minibatch["rewards"] -= self.config.kl.coef * kl_term
                 kl = kl_term.sum() / total_actions
                 metrics["kl"].append(
                     self.device_mesh.size() * len(minibatches) * kl.item()
                 )
+                if self.config.kl.type == "reward":
+                    minibatch["rewards"] -= self.config.kl.coef * kl_term
 
         self.log(metrics, step)
 
@@ -310,7 +310,6 @@ class Actor(Worker):
                         logps, minibatch["ref_logps"], self.config.kl.estimator
                     ).sum() / total_actions
                     loss = loss + self.config.kl.coef * kl
-                    metrics["kl"].append(self.device_mesh.size() * len(batch) * kl.item())
 
                 (loss * self.device_mesh.size()).backward() 
                 if self.device_mesh.get_rank() == 0:
