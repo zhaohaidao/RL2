@@ -36,13 +36,13 @@ actor:
   kl:
     coef: 0.0
     type: null # `reward` or `loss`
-    estimator: null # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
-    # These two hyper-paratemers are orthogonal, so 
-    # there are 6 possible combinations.
-    # Two typical choices are
-    #   - OpenAI PPO: type=reward, estimator=k1
-    #   - DeepSeek GRPO: type=loss, estimator=k3
-    # However, it is recommended to use `estimator=k2` when `type=loss`.
+    reward_estimator: k1
+    loss_estimator: k2
+    # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
+
+  entropy:
+    coef: 0.0
+    type: null # `reward` or `loss`
 
 critic:
   model_name: ${actor.model_name}

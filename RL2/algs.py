@@ -39,17 +39,17 @@ def compute_seq_and_avg_logps(
 def compute_kl_term(
     logps: torch.Tensor,
     ref_logps: torch.Tensor,
-    kl_estimator: str
+    estimator: str
 ) -> torch.Tensor:
     # The (ref_)logps of non-action tokens are zero (see `Actor.
     # forward`), so their corresponding kl_term will also be zero.
 
     logp_diffs = logps - ref_logps
-    if kl_estimator == "k1":
+    if estimator == "k1":
         return logp_diffs
-    elif kl_estimator == "k2":
+    elif estimator == "k2":
         return logp_diffs.pow(2) / 2
-    elif kl_estimator == "k3":
+    elif estimator == "k3":
         return logp_diffs + torch.exp(- logp_diffs) - 1
     else:
         raise NotImplementedError

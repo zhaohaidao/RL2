@@ -14,7 +14,6 @@ torchrun \
     actor.rollout.env_path=envs/orz.py \
     actor.kl.coef=1e-3 \
     actor.kl.type=reward \
-    actor.kl.estimator=k1 \
     adv.estimator=reinforce \
     trainer.project=OpenReasonerZero \
     trainer.experiment_name=qwen2.5-7b-reinforce \
