@@ -3,8 +3,8 @@ torchrun \
     --nnodes=1 \
     --nproc_per_node=8 \
     -m RL2.trainer.ppo \
-    data.train_data_path=data/orz.json \
-    data.test_data_path=data/olympiadbench.json \
+    data.train_data_path=Chenmien/OpenReasonerZero \
+    data.test_data_path=Chenmien/OlympiadBench \
     data.prompts_per_rollout=128 \
     data.responses_per_prompt=64 \
     actor.model_name=Qwen/Qwen2.5-7B \

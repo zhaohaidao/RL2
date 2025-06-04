@@ -3,7 +3,7 @@ torchrun \
     --nnodes=1 \
     --nproc_per_node=8 \
     -m RL2.trainer.sft \
-    data.path=data/limo.json \
+    data.path=Chenmien/LIMO \
     data.max_length=16384 \
     data.batch_size=32 \
     actor.model_name=Qwen/Qwen2.5-7B-Instruct \

@@ -1,15 +1,14 @@
 from typing import Tuple, Dict, List
-import json
 import copy
 import uuid
 from torch.utils.data import Dataset
+from RL2.dataset.base import load_dataset
 
 class RLDataset(Dataset):
     
     def __init__(self, data_path, responses_per_prompt):
 
-        with open(data_path) as f:
-            self.dataset = json.load(f)
+        self.dataset = load_dataset(data_path)
         self.responses_per_prompt = responses_per_prompt
         
     def __len__(self):
