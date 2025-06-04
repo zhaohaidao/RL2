@@ -6,5 +6,6 @@ tqdm
 transformers==4.51.2
 peft
 liger_kernel
-sglang==0.4.6.post3
+sglang[all]==0.4.6.post3
 wandb
+flash-attn
