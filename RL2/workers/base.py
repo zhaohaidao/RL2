@@ -300,12 +300,15 @@ class Worker:
             state_dict = {
                 k: v.to(torch.bfloat16) for k, v in state_dict.items()
             }
-            model_cls = getattr(
-                transformers,
-                self.model.__class__.__name__.removeprefix("FSDP")
-            )
-            with torch.device("meta"):
-                model_to_save = model_cls._from_config(self.model.config)
+            if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+                model_to_save = self.model
+            else:
+                model_cls = getattr(
+                    transformers,
+                    self.model.__class__.__name__.removeprefix("FSDP")
+                )
+                with torch.device("meta"):
+                    model_to_save = model_cls._from_config(self.model.config)
             model_to_save.save_pretrained(
                 path, state_dict=state_dict
             )
