@@ -3,8 +3,8 @@ torchrun \
     --nnodes=1 \
     --nproc_per_node=8 \
     -m RL2.trainer.ppo \
-    data.train_data_path=data/countdown_train.json \
-    data.test_data_path=data/countdown_test.json \
+    data.train_data_path=train@Chenmien/Countdown \
+    data.test_data_path=test@Chenmien/Countdown \
     data.prompts_per_rollout=256 \
     data.responses_per_prompt=16 \
     actor.model_name=Qwen/Qwen2.5-3B \

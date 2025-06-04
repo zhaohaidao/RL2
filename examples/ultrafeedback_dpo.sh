@@ -6,7 +6,7 @@ torchrun \
     --nnodes=1 \
     --nproc_per_node=8 \
     -m RL2.trainer.dpo \
-    data.path=data/ultrafeedback.json \
+    data.path=Chenmien/UltraFeedback \
     data.max_length=1024 \
     data.batch_size_per_device=4 \
     actor.model_name=allenai/Llama-3.1-Tulu-3-8B-SFT \

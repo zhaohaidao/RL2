@@ -1,6 +1,22 @@
-import json
+import os
+import datasets
 import torch
 from torch.utils.data import Dataset
+
+def load_dataset(data_path):
+
+    if "@" in data_path:
+        split, data_path = data_path.split("@")
+    else:
+        split = "train"
+    
+    ext = os.path.splitext(data_path)[-1].strip(".")
+    if ext in ["json", "jsonl", "csv", "parquet", "arrow"]:
+        if ext == "jsonl":
+            ext = "json"
+        return datasets.load_dataset(ext, data_files=data_path, split=split)
+    else:
+        return datasets.load_dataset(data_path, split=split)
 
 def tokenize_messages(tokenizer, messages):
 
@@ -39,8 +55,7 @@ class BaseDataset(Dataset):
         device_mesh
     ):
 
-        with open(data_path) as f:
-            self.dataset = json.load(f)
+        self.dataset = load_dataset(data_path)
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.device_mesh = device_mesh
