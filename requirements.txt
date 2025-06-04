@@ -1,8 +1,11 @@
 hydra-core
 ninja
 ring-flash-attn==0.1.4
-torch
+torch==2.6.0
 tqdm
 transformers==4.51.2
-vllm==0.8.2
+peft
+liger_kernel
+sglang[all]==0.4.6.post3
 wandb
+flash-attn
