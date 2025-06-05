@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 import os
-from torch.utils.data import DistributedSampler, DataLoader
+from torch.utils.data import RandomSampler, DistributedSampler, DataLoader
 import torch.distributed as dist
 import wandb
 
@@ -32,7 +32,7 @@ class Trainer:
         dataset,
         batch_size_per_device,
         train,
-        device_mesh
+        device_mesh=None
     ):
 
         sampler = DistributedSampler(
@@ -41,7 +41,7 @@ class Trainer:
             rank=device_mesh.get_local_rank(),
             shuffle=train,
             drop_last=True
-        )
+        ) if device_mesh is not None else RandomSampler(dataset)
 
         dataloader = DataLoader(
             dataset,

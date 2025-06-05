@@ -10,7 +10,6 @@ from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-from tqdm import tqdm
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_kl_term, compute_baseline
@@ -129,20 +128,13 @@ class Actor(Worker):
         metric["rewards"].append(reward)
 
         ex = tokenize_messages(self.tokenizer, messages)
+        # TODO: unsqueeze in `scatter_and_pack_data_list`
         # TODO: use `length` rather than `eos_mask`
         ex.update({
-            "rewards": (len(ex["states"]) - 1) * [0] + [reward],
-            "eos_mask": (len(ex["states"]) - 1) * [0] + [1]
-        })
-        # TODO: unsqueeze in `scatter_and_pack_data_list`
-        ex = {
             "uid": uid,
-            **{
-                k: torch.LongTensor(v).unsqueeze(0) if k != "rewards"
-                else torch.FloatTensor(v).unsqueeze(0)
-                for k, v in ex.items()
-            }
-        }
+            "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward]).unsqueeze(0),
+            "eos_mask": torch.LongTensor((ex["states"].shape[-1] - 1) * [0] + [1]).unsqueeze(0)
+        })  
 
         return ex, metric
 
@@ -242,7 +234,7 @@ class Actor(Worker):
     @torch.no_grad()
     def compute_logps(self, data_list, step):
         self.load_model_to_gpu()
-        minibatches = self.scatter_and_pack_data_list(data_list, False)
+        minibatches = self.scatter_and_pack_data_list(data_list)
 
         prefix = "old" if self.train else "ref"
 
@@ -252,21 +244,10 @@ class Actor(Worker):
         
         self.model.eval()
         metrics = defaultdict(list)
-        for minibatch in (
-            tqdm(minibatches, desc=f"Step {step + 1}, compute {prefix} logps")
-            if self.device_mesh.get_rank() == 0 else minibatches
-        ):
+        for minibatch in minibatches:
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
-            if self.train:
-                # TODO: deprecate entropy reward
-                entropy = - minibatch["old_logps"].sum() / total_actions
-                metrics["entropy"].append(
-                    self.device_mesh.size() * len(minibatches) * entropy.item()
-                )
-                if self.config.entropy.coef > 0 and self.config.entropy.type == "reward":
-                    minibatch["rewards"] -= self.config.entropy.coef * minibatch["old_logps"]
-            else:
+            if not self.train and "old_logps" in minibatch.keys():
                 kl_term = compute_kl_term(
                     minibatch["old_logps"],
                     minibatch["ref_logps"],
@@ -290,11 +271,6 @@ class Actor(Worker):
 
         self.model.train()
         metrics = defaultdict(list)
-        if self.device_mesh.get_rank() == 0:
-            tbar = tqdm(
-                total=sum([len(batch) for batch in batches]),
-                desc=f"Step {step + 1}, update actor"
-            )
         for batch in batches:
             
             total_actions = sum_across_processes(
@@ -322,7 +298,7 @@ class Actor(Worker):
                 metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 
-                if self.config.entropy.coef > 0 and self.config.entropy.type == "loss":
+                if self.config.entropy.coef > 0:
                     # TODO: compute entropy over the vocabulary.
                     entropy_loss = logps.pow(2).sum() / 2 / total_actions
                     loss = loss + self.config.entropy.coef * entropy_loss
@@ -336,8 +312,6 @@ class Actor(Worker):
                     loss = loss + self.config.kl.coef * kl_loss
 
                 (loss * self.device_mesh.size()).backward() 
-                if self.device_mesh.get_rank() == 0:
-                    tbar.update()
             grad_norm = clip_grad_norm_(
                 self.model.parameters(),
                 max_norm=self.config.max_grad_norm

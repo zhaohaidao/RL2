@@ -93,11 +93,11 @@ class Worker:
                 torch.cuda.current_device(), non_blocking=True
             )
 
-    def scatter_and_pack_data_list(self, data_list, train: bool):
+    def scatter_and_pack_data_list(self, data_list, pack_minibatches=False):
 
-        if train:
-            # If train, we partition data into multiple batches, where each
-            # batch is used for an update and contains multiple minibatches.
+        if pack_minibatches:
+            # Pack minibatches into multiple batches, where each batch is 
+            # used for an update and contains multiple minibatches.
             if self.device_mesh.get_rank() == 0:
                 n_trajectories_per_update = len(data_list) // self.config.update_per_rollout
                 return [
@@ -173,7 +173,7 @@ class Worker:
         multiple_of = 2 * self.sp_device_mesh["sp"].size()
         minibatches = []
         for data in data_list:
-            minibatch = {"uid": [ex.pop("uid") for ex in data]}
+            minibatch = {"uid": [ex.pop("uid") for ex in data]} if "uid" in data[0].keys() else {}
             for k in data[0].keys():
                 tensors = []
                 for ex in data:

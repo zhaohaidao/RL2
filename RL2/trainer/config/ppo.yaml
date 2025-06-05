@@ -42,7 +42,6 @@ actor:
 
   entropy:
     coef: 0.0
-    type: null # `reward` or `loss`
 
 critic:
   model_name: ${actor.model_name}

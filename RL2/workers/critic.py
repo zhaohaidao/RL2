@@ -2,7 +2,6 @@ from collections import defaultdict
 import torch
 from torch.nn.utils import clip_grad_norm_
 from transformers import AutoModelForTokenClassification
-from tqdm import tqdm
 from RL2.workers import Worker
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import sum_across_processes
@@ -35,13 +34,10 @@ class Critic(Worker):
     @torch.no_grad()
     def compute_values(self, data_list, step):
         self.load_model_to_gpu()
-        minibatches = self.scatter_and_pack_data_list(data_list, False)
+        minibatches = self.scatter_and_pack_data_list(data_list)
 
         self.model.eval()
-        for minibatch in (
-            tqdm(minibatches, desc=f"Step {step + 1}, compute values")
-            if self.device_mesh.get_rank() == 0 else minibatches
-        ):
+        for minibatch in minibatches:
             minibatch["values"] = self.forward(minibatch)
         
         # No need to offload model because it will be updated soon. See `Trainer.train`.
@@ -53,11 +49,6 @@ class Critic(Worker):
 
         self.model.train()
         metrics = defaultdict(list)
-        if self.device_mesh.get_rank() == 0:
-            tbar = tqdm(
-                total=sum([len(batch) for batch in batches]),
-                desc=f"Step {step + 1}, update critic"
-            )
         for batch in batches:
 
             total_actions = sum_across_processes(
@@ -81,8 +72,6 @@ class Critic(Worker):
 
                 metrics["critic/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["critic/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
-                if self.device_mesh.get_rank() == 0:
-                    tbar.update()
 
             grad_norm = clip_grad_norm_(
                 self.model.parameters(),
