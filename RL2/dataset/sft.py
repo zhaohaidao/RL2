@@ -4,6 +4,6 @@ class SFTDataset(BaseDataset):
     
     def __getitem__(self, idx):
         
-        messages = self.dataset[idx]
+        messages = self.dataset[idx]["messages"]
         ex = tokenize_messages(self.tokenizer, messages)
         return self.truncate_and_scatter(ex)
