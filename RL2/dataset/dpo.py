@@ -1,4 +1,6 @@
-from RL2.dataset import BaseDataset
+import uuid
+import torch
+from RL2.dataset import BaseDataset, tokenize_messages
 
 
 class DPODataset(BaseDataset):
@@ -6,35 +8,36 @@ class DPODataset(BaseDataset):
     def __getitem__(self, idx):
 
         ex = self.dataset[idx]
+        uid = str(uuid.uuid4())
         messages = ex["messages"]
         chosen = ex["chosen"]
         rejected = ex["rejected"]
 
-        chosen = self.tokenize_messages_completion(messages, chosen)
-        rejected = self.tokenize_messages_completion(messages, rejected)
+        chosen = self.tokenize_messages_completion(
+            uid, messages, chosen, True
+        )
+        rejected = self.tokenize_messages_completion(
+            uid, messages, rejected, False
+        )
 
         return chosen, rejected
+    
+    def tokenize_messages_completion(
+        self, uid, messages, completion, chosen: bool
+    ):
 
-    def tokenize_messages_completion(self, messages, completion):
-
-        prompt = self.tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True
-        )
-        completion = self.tokenizer.apply_chat_template(
+        ex = tokenize_messages(
+            self.tokenizer,
             messages + [{"role": "assistant", "content": completion}]
-        )[len(prompt):]
-
-        ex = {
-            "states": prompt + completion[:-1],
-            "actions": (len(prompt) - 1) * [0] + completion,
-            "position_ids": list(range(len(prompt) + len(completion) - 1)),
-            "action_mask": (len(prompt) - 1) * [0] + len(completion) * [1]
-        }
-        return self.truncate_and_scatter(ex)
+        )
+        ex.update({
+            "uid": uid,
+            "eos_mask": torch.LongTensor((ex["states"].shape[-1] - 1) * [0] + [1]).unsqueeze(0),
+            "chosen_mask": torch.LongTensor(ex["states"].shape[-1] * [1 if chosen else -1]).unsqueeze(0)
+        })
+        return ex
 
     def collate_fn(self, batch):
-
         return super().collate_fn(
-            [ex[0] for ex in batch] + [ex[1] for ex in batch]
+            sum([list(ex) for ex in batch], [])
         )

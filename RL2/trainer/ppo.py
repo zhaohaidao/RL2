@@ -1,5 +1,6 @@
 import hydra
 import torch.distributed as dist
+from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import RLDataset
 from RL2.workers import Actor, Critic
@@ -69,7 +70,9 @@ class PPOTrainer(Trainer):
     
         for epoch in range(self.config.trainer.n_epochs):
             self.sampler.set_epoch(epoch)
-            for data_list in self.train_dataloader:
+            for data_list in (
+                tqdm(self.train_dataloader) if self.device_mesh.get_rank() == 0 else self.train_dataloader
+            ):
 
                 data_list = self.actor.rollout(data_list, True, step)
 

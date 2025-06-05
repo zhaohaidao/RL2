@@ -2,18 +2,19 @@ data:
   path: null
   max_length: null
   batch_size: 128
-  batch_size_per_device: 1
 
 actor:
   model_name: null
   gradient_checkpointing: true
   sp_size: 1
+  max_length_per_device: null
   lr: 5e-6
   weight_decay: 1e-2
   max_grad_norm: 1.0
   offload_model: false
   offload_optimizer: true
   save_dir: ckpts/${trainer.experiment_name}
+  save_freq: null
   save_optimizer: true
 
   lora:

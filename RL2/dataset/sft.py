@@ -6,4 +6,4 @@ class SFTDataset(BaseDataset):
         
         messages = self.dataset[idx]["messages"]
         ex = tokenize_messages(self.tokenizer, messages)
-        return self.truncate_and_scatter(ex)
+        return {k: v[:, :self.max_length] for k, v in ex.items()}
