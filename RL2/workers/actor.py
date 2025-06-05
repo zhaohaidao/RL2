@@ -129,10 +129,12 @@ class Actor(Worker):
         metric["rewards"].append(reward)
 
         ex = tokenize_messages(self.tokenizer, messages)
+        # TODO: use `length` rather than `eos_mask`
         ex.update({
             "rewards": (len(ex["states"]) - 1) * [0] + [reward],
             "eos_mask": (len(ex["states"]) - 1) * [0] + [1]
         })
+        # TODO: unsqueeze in `scatter_and_pack_data_list`
         ex = {
             "uid": uid,
             **{
@@ -165,6 +167,11 @@ class Actor(Worker):
                 for k in metrics[0].keys()
             }
 
+            # Filter out over-length trajectories and groups with too low 
+            # or too high average rewards, e.g., all trajectories within 
+            # the group succeed or fail. We firstly perform length 
+            # filtering because it may exclude some trajectories within a 
+            # group and affect the average reward.
             is_length_filtered = [
                 ex["states"].shape[-1] > self.config.sp_size * self.config.max_length_per_device
                 for ex in data_list
@@ -198,6 +205,10 @@ class Actor(Worker):
 
         dist.barrier()
 
+        # After each worker operation, the data is aggregated to rank 0 and 
+        # re-distributed before the next operation, which facilitates to do 
+        # model-agnostic operations, e.g., computing advantages, globally 
+        # and guarantees the load balancing across all model computations.
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
             return gather_and_concat_list(
                 data_list,
@@ -218,6 +229,10 @@ class Actor(Worker):
             if hasattr(self.config, "rollout") else 1.0
         )
 
+        # Non-action logps are masked to zero so that they are excluded 
+        # from computations. For example, in `algs.compute_kl_term`, 
+        # because the `logps` and `ref_logps` of non-action tokens are both 
+        # zero, their KL terms are also zero, regardless of the estimator.
         return torch.gather(
             logits.log_softmax(-1),
             dim=-1,
@@ -244,6 +259,7 @@ class Actor(Worker):
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
             if self.train:
+                # TODO: deprecate entropy reward
                 entropy = - minibatch["old_logps"].sum() / total_actions
                 metrics["entropy"].append(
                     self.device_mesh.size() * len(minibatches) * entropy.item()
@@ -299,15 +315,15 @@ class Actor(Worker):
                 loss = - torch.min(objective, clipped_objective).sum() / total_actions
                 clip_ratio = (objective > clipped_objective).sum() / total_actions
 
-                # The losses on each device (resp. of minibatches 
-                # within a batch) are accumulated but the value 
-                # will be averaged in `Worker.log`. Therefore 
-                # we multiply the world size (resp. bsz) here to 
-                # get the correct value.
+                # The losses on each device (resp. of minibatches within a 
+                # batch) are accumulated but the value will be averaged in 
+                # `Worker.log`. Therefore we multiply the world size (resp. 
+                # bsz) here to get the correct value.
                 metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 
                 if self.config.entropy.coef > 0 and self.config.entropy.type == "loss":
+                    # TODO: compute entropy over the vocabulary.
                     entropy_loss = logps.pow(2).sum() / 2 / total_actions
                     loss = loss + self.config.entropy.coef * entropy_loss
 

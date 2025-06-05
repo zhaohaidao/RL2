@@ -79,17 +79,19 @@ class Worker:
 
     @torch.no_grad()
     def offload_model_to_cpu(self):
-        if self.config.offload_model:
-            for param in self.model.parameters():
-                param.data = param.data.to("cpu", non_blocking=True)
+        if not self.config.offload_model:
+            return
+        for param in self.model.parameters():
+            param.data = param.data.to("cpu", non_blocking=True)
     
     @torch.no_grad()
     def load_model_to_gpu(self):
-        if self.config.offload_model:
-            for param in self.model.parameters():
-                param.data = param.data.to(
-                    torch.cuda.current_device(), non_blocking=True
-                )
+        if not self.config.offload_model:
+            return
+        for param in self.model.parameters():
+            param.data = param.data.to(
+                torch.cuda.current_device(), non_blocking=True
+            )
 
     def scatter_and_pack_data_list(self, data_list, train: bool):
 
@@ -176,9 +178,13 @@ class Worker:
                 tensors = []
                 for ex in data:
                     tensor = ex[k]
-                    # Every trajectory is evenly partitioned into 2 * sp 
-                    # size segments and each rank sequentially get the head 
-                    # and tail.
+                    # To apply ZigZag Ring Attention, every trajectory is 
+                    # evenly partitioned into 2 * sp size segments and each 
+                    # rank sequentially get the head and tail. It is fine 
+                    # to shuffle the order of tokens here since all 
+                    # subsequent operations, i.e., Actor.compute_logps, 
+                    # Critic.compute_values, and Actor/Critic.update, are 
+                    # element-wise.
                     half_seqlen = tensor.shape[-1] // multiple_of
                     tensor = torch.cat((
                         tensor[:, rank * half_seqlen:(rank + 1) * half_seqlen],
@@ -312,6 +318,8 @@ class Worker:
             model_to_save.save_pretrained(
                 path, state_dict=state_dict
             )
+
+        dist.barrier()
 
         if self.config.save_optimizer:
             torch.save(
