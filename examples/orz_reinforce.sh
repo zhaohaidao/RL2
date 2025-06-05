@@ -1,5 +1,3 @@
-export CUDA_LAUNCH_BLOCKING=1
-
 torchrun \
     --standalone \
     --nnodes=1 \
