@@ -11,6 +11,7 @@ class Trainer:
         OmegaConf.resolve(config)
         self.config = config
         world_size = int(os.environ["WORLD_SIZE"])
+        # TODO: support 2D device mesh for HSDP
         self.device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_shape=(world_size,)
