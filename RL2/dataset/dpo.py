@@ -28,6 +28,4 @@ class DPODataset(BaseDataset):
         return {k: v[:, :self.max_length] for k, v in ex.items()}
 
     def collate_fn(self, batch):
-        return super().collate_fn(
-            sum([list(ex) for ex in batch], [])
-        )
+        return sum([list(ex) for ex in batch], [])

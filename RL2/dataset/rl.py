@@ -1,18 +1,13 @@
-from typing import Tuple, Dict, List
 import copy
 import uuid
-from torch.utils.data import Dataset
-from RL2.dataset.base import load_dataset
+from RL2.dataset.base import BaseDataset, load_dataset
 
-class RLDataset(Dataset):
+class RLDataset(BaseDataset):
     
     def __init__(self, data_path, responses_per_prompt):
 
         self.dataset = load_dataset(data_path)
         self.responses_per_prompt = responses_per_prompt
-        
-    def __len__(self):
-        return len(self.dataset)
 
     def __getitem__(self, idx):
 
@@ -27,7 +22,7 @@ class RLDataset(Dataset):
             "answer": answer
         }
 
-    def collate_fn(self, batch: Tuple[Dict]) -> List[Dict]:
+    def collate_fn(self, batch):
         return [
             copy.deepcopy(ex)
             for ex in batch
