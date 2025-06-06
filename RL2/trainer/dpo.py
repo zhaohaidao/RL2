@@ -1,15 +1,14 @@
 import hydra
 from collections import defaultdict
-import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.nn.functional as F
 import torch.distributed as dist
 from transformers import AutoTokenizer
 from tqdm import tqdm
-import wandb
 from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
 from RL2.workers import Actor
+from RL2.algs import compute_seq_logps
 from RL2.utils.comm import initialize_global_process_group
 
 
@@ -38,33 +37,32 @@ class DPOTrainer(Trainer):
             ):
                 
                 data_list = self.ref_actor.compute_logps(data_list, step)
-                data_list = self.actor.compute_logps(data_list, step)
+                minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
 
                 metrics = defaultdict(list)
-                if self.device_mesh.get_rank() == 0:
-                    uid2margin = defaultdict(float)
-                    for ex in data_list:
-                        chosen_mask = ex["chosen_mask"][0, 0].item()
-                        reward = self.config.trainer.beta * (ex["old_logps"] - ex["ref_logps"]).sum().item()
-                        uid2margin[ex["uid"]] += chosen_mask * reward
-                        metrics["rewards/" + ("chosen" if chosen_mask == 1 else "rejected")].append(reward)
-                    
-                    for ex in data_list:
-                        margin = uid2margin[ex["uid"]]
-                        ex["grad"] = - self.config.trainer.beta * F.sigmoid(
-                            - torch.tensor(margin)
-                        ).item() * ex["chosen_mask"]
-                        metrics["rewards/margin"].append(margin)
-                        metrics["loss"].append(- F.logsigmoid(
-                            torch.tensor(margin)
-                        ).item())
-                        metrics["accuracy"].append(margin > 0)
-
-                minibatches = self.actor.scatter_and_pack_data_list(data_list)
                 for minibatch in minibatches:
                     logps = self.actor.forward(minibatch)
-                    loss = (logps * minibatch["grad"]).sum() / self.config.data.batch_size
+                    chosen_logps, rejected_logps = compute_seq_logps(
+                        minibatch, logps, self.actor.sp_device_mesh["sp"]
+                    ).view(-1, 2).T
+                    chosen_ref_logps, rejected_ref_logps = compute_seq_logps(
+                        minibatch,
+                        minibatch["ref_logps"],
+                        self.actor.sp_device_mesh["sp"]
+                    ).view(-1, 2).T
+                    chosen_rewards = self.config.trainer.beta * (chosen_logps - chosen_ref_logps)
+                    rejected_rewards = self.config.trainer.beta * (rejected_logps - rejected_ref_logps)
+                    reward_margins = chosen_rewards - rejected_rewards
+                    loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
                     (loss * self.actor.device_mesh.size()).backward()
+
+                    metrics["rewards/chosen"].append(chosen_rewards.tolist())
+                    metrics["rewards/rejected"].append(rejected_rewards.tolist())
+                    metrics["rewards/margin"].append(reward_margins.tolist())
+                    metrics["loss"].append(
+                        self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
+                    )
+                    metrics["accuray"].append((reward_margins > 0).tolist())
 
                 grad_norm = clip_grad_norm_(
                     self.actor.model.parameters(),
@@ -72,11 +70,9 @@ class DPOTrainer(Trainer):
                 )
                 self.actor.optimizer_step()
                 metrics["grad_norm"].append(grad_norm.full_tensor().item())
-                if self.device_mesh.get_rank() == 0:
-                    wandb.log({
-                        k: torch.Tensor(v).mean().item()
-                        for k, v in metrics.items()
-                    }, step=step)
+                self.actor.log(
+                    metrics, step, self.actor.sp_device_mesh["dp"]
+                )
                 step += 1
 
                 if self.actor.config.save_freq is not None and step % self.actor.config.save_freq == 0:

@@ -1,6 +1,5 @@
 import hydra
 from collections import defaultdict
-import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from transformers import AutoTokenizer
@@ -8,35 +7,8 @@ from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import SFTDataset
 from RL2.workers import Actor
+from RL2.algs import compute_seq_logps
 from RL2.utils.comm import initialize_global_process_group
-
-def compute_avg_logps(batch, logps, device_mesh):
-
-    cu_seqlens = batch["cu_seqlens"]
-    partial_logps = torch.stack([
-        logps[:, start_idx:end_idx].sum()
-        for start_idx, end_idx
-        in zip(cu_seqlens[:-1], cu_seqlens[1:])
-    ])
-    logps = partial_logps.detach()
-    dist.all_reduce(
-        logps,
-        op=dist.ReduceOp.SUM,
-        group=device_mesh.get_group()
-    )
-    logps = logps + partial_logps - partial_logps.detach()
-
-    actions = torch.stack([
-        batch["action_mask"][:, start_idx:end_idx].sum()
-        for start_idx, end_idx
-        in zip(cu_seqlens[:-1], cu_seqlens[1:])
-    ])
-    dist.all_reduce(
-        actions,
-        op=dist.ReduceOp.SUM,
-        group=device_mesh.get_group()
-    )
-    return logps / (actions + torch.finfo(logps.dtype).eps)
 
 
 class SFTTrainer(Trainer):
@@ -66,8 +38,8 @@ class SFTTrainer(Trainer):
                 metrics = defaultdict(list)
                 for minibatch in minibatches:
                     logps = self.actor.forward(minibatch)
-                    logps = compute_avg_logps(
-                        minibatch, logps, self.actor.sp_device_mesh["sp"]
+                    logps = compute_seq_logps(
+                        minibatch, logps, self.actor.sp_device_mesh["sp"], True
                     )
                     loss = - logps.sum() / self.config.data.batch_size
                     (loss * self.actor.device_mesh.size()).backward()

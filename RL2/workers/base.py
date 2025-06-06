@@ -93,7 +93,7 @@ class Worker:
                 torch.cuda.current_device(), non_blocking=True
             )
 
-    def scatter_and_pack_data_list(self, data_list, pack_minibatches=False):
+    def scatter_and_pack_data_list(self, data_list, pack_minibatches=False, pair=False):
 
         if pack_minibatches:
             # Pack minibatches into multiple batches, where each batch is 
@@ -135,6 +135,9 @@ class Worker:
             # To accommodate all trajectories, at least n_minibatches 
             # minibatches are needed.
             seq_len_list = [ex["states"].shape[-1] for ex in data_list]
+            if pair:
+                # When pair, every two adjacent trajectories will be colocated, so their length are summed.
+                seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(dim=-1).flatten().tolist()
             n_minibatches = math.ceil(
                 sum(seq_len_list) / (
                     self.config.max_length_per_device * self.sp_device_mesh["sp"].size()
@@ -149,9 +152,17 @@ class Worker:
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             # Partition data into n_minibatches balanced minibatches.
+            # We cache the shuffle indices for sorting the data in 
+            # `resume_and_gather_data_list`.
             partitions: List[List[int]] = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )
+            if pair:
+                partitions = [
+                    sum([[2 * p, 2 * p + 1] for p in partition], [])
+                    for partition in partitions
+                ]
+            self.shuffle_indices = sum(partitions, [])
             # The n-th list contains data for rank n.
             data_lists = [
                 [
@@ -244,11 +255,14 @@ class Worker:
                 data_list.append(ex)
         
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
-            return gather_and_concat_list(
+            shuffled_data_list = gather_and_concat_list(
                 data_list, self.sp_device_mesh["dp"]
             )
-        else:
-            return None
+            if self.device_mesh.get_rank() == 0:
+                data_list = len(shuffled_data_list) * [None]
+                for idx, ex in zip(self.shuffle_indices, shuffled_data_list):
+                    data_list[idx] = ex
+                return data_list
     
     @torch.no_grad()
     def optimizer_step(self):

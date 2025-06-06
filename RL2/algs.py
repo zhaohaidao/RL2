@@ -1,5 +1,37 @@
 from collections import defaultdict
 import torch
+import torch.distributed as dist
+
+def compute_seq_logps(batch, logps, device_mesh, avg=False):
+
+    cu_seqlens = batch["cu_seqlens"]
+    partial_logps = torch.stack([
+        logps[:, start_idx:end_idx].sum()
+        for start_idx, end_idx
+        in zip(cu_seqlens[:-1], cu_seqlens[1:])
+    ])
+    logps = partial_logps.detach()
+    dist.all_reduce(
+        logps,
+        op=dist.ReduceOp.SUM,
+        group=device_mesh.get_group()
+    )
+    logps = logps + partial_logps - partial_logps.detach()
+
+    if avg:
+        actions = torch.stack([
+            batch["action_mask"][:, start_idx:end_idx].sum()
+            for start_idx, end_idx
+            in zip(cu_seqlens[:-1], cu_seqlens[1:])
+        ])
+        dist.all_reduce(
+            actions,
+            op=dist.ReduceOp.SUM,
+            group=device_mesh.get_group()
+        )
+        logps = logps / (actions + torch.finfo(logps.dtype).eps)
+
+    return logps
 
 def compute_kl_term(
     logps: torch.Tensor,
