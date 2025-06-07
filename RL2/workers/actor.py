@@ -232,35 +232,13 @@ class Actor(Worker):
         ).squeeze(-1) * minibatch["action_mask"]
 
     @torch.no_grad()
-    def compute_logps(self, data_list, step):
+    def compute_logps(self, data_list):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list)
 
-        prefix = "old" if self.train else "ref"
-
-        total_actions = sum_across_processes(
-            sum([minibatch["action_mask"].sum() for minibatch in minibatches])
-        )
-        
         self.model.eval()
-        metrics = defaultdict(list)
         for minibatch in minibatches:
-            minibatch[f"{prefix}_logps"] = self.forward(minibatch)
-
-            if not self.train and "old_logps" in minibatch.keys():
-                kl_term = compute_kl_term(
-                    minibatch["old_logps"],
-                    minibatch["ref_logps"],
-                    self.config.kl.reward_estimator
-                )
-                kl = kl_term.sum() / total_actions
-                metrics["kl"].append(
-                    self.device_mesh.size() * len(minibatches) * kl.item()
-                )
-                if self.config.kl.type == "reward":
-                    minibatch["rewards"] -= self.config.kl.coef * kl_term
-
-        self.log(metrics, step)
+            minibatch[f"{'old' if self.train else 'ref'}_logps"] = self.forward(minibatch)
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 

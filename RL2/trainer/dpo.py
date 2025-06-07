@@ -35,7 +35,7 @@ class DPOTrainer(Trainer):
             for data_list in (
                 tqdm(self.dataloader) if self.device_mesh.get_rank() == 0 else self.dataloader
             ):
-                data_list = self.ref_actor.compute_logps(data_list, step)
+                data_list = self.ref_actor.compute_logps(data_list)
                 minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
 
                 metrics = defaultdict(list)

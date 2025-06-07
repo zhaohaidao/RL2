@@ -32,7 +32,7 @@ class Critic(Worker):
         ).logits.squeeze(-1) * minibatch["action_mask"]
 
     @torch.no_grad()
-    def compute_values(self, data_list, step):
+    def compute_values(self, data_list):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list)
 
