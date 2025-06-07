@@ -1,10 +1,12 @@
 import hydra
 import torch.distributed as dist
 from tqdm import tqdm
+import wandb
 from RL2.trainer import Trainer
 from RL2.dataset import RLDataset
 from RL2.workers import Actor, Critic
 from RL2.algs import (
+    compute_kl_term,
     compute_gae,
     compute_reinforce_adv
 )
@@ -44,6 +46,21 @@ class PPOTrainer(Trainer):
             self.actor.rollout_device_mesh["dp"]
         )
     
+    def compute_kl_term(self, data_list, step):
+        
+        kl = 0
+        for ex in data_list:
+            kl_term = compute_kl_term(
+                ex["old_logps"],
+                ex["ref_logps"],
+                self.config.actor.kl.reward_estimator
+            )
+            if self.config.actor.kl.type == "reward":
+                ex["rewards"] -= self.config.actor.kl.coef * kl_term
+            kl += kl_term.sum().item()
+        kl /= sum([ex["action_mask"].sum().item() for ex in data_list])
+        wandb.log({"kl": kl}, step=step)
+    
     def compute_advantages(self, data_list):
 
         if self.config.adv.estimator == "gae":
@@ -76,12 +93,14 @@ class PPOTrainer(Trainer):
 
                 data_list = self.actor.rollout(data_list, True, step)
 
-                data_list = self.actor.compute_logps(data_list, step)
+                data_list = self.actor.compute_logps(data_list)
                 if self.config.actor.kl.coef > 0:
-                    data_list = self.ref_actor.compute_logps(data_list, step)
+                    data_list = self.ref_actor.compute_logps(data_list)
+                    if self.device_mesh.get_rank() == 0:
+                        self.compute_kl_term(data_list, step)
 
                 if self.config.adv.estimator == "gae":
-                    data_list = self.critic.compute_values(data_list, step)
+                    data_list = self.critic.compute_values(data_list)
 
                 if self.device_mesh.get_rank() == 0:
                     data_list = self.compute_advantages(data_list)
