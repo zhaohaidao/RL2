@@ -7,7 +7,7 @@ from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import SFTDataset
 from RL2.workers import Actor
-from RL2.algs import compute_seq_logps
+from RL2.algs import sequence_all_reduce
 from RL2.utils.comm import initialize_global_process_group
 
 
@@ -38,8 +38,11 @@ class SFTTrainer(Trainer):
                 metrics = defaultdict(list)
                 for minibatch in minibatches:
                     logps = self.actor.forward(minibatch)
-                    logps = compute_seq_logps(
-                        minibatch, logps, self.actor.sp_device_mesh["sp"], True
+                    logps = sequence_all_reduce(
+                        minibatch,
+                        logps,
+                        self.actor.sp_device_mesh["sp"],
+                        "mean"
                     )
                     loss = - logps.sum() / self.config.data.batch_size
                     (loss * self.actor.device_mesh.size()).backward()
