@@ -8,7 +8,7 @@ from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
 from RL2.workers import Actor
-from RL2.algs import compute_seq_logps
+from RL2.algs import sequence_all_reduce
 from RL2.utils.comm import initialize_global_process_group
 
 
@@ -42,16 +42,11 @@ class DPOTrainer(Trainer):
                 metrics = defaultdict(list)
                 for minibatch in minibatches:
                     logps = self.actor.forward(minibatch)
-                    chosen_logps, rejected_logps = compute_seq_logps(
-                        minibatch, logps, self.actor.sp_device_mesh["sp"]
-                    ).view(-1, 2).T
-                    chosen_ref_logps, rejected_ref_logps = compute_seq_logps(
+                    chosen_rewards, rejected_rewards = sequence_all_reduce(
                         minibatch,
-                        minibatch["ref_logps"],
+                        self.config.trainer.beta * (logps - minibatch["ref_logps"]),
                         self.actor.sp_device_mesh["sp"]
                     ).view(-1, 2).T
-                    chosen_rewards = self.config.trainer.beta * (chosen_logps - chosen_ref_logps)
-                    rejected_rewards = self.config.trainer.beta * (rejected_logps - rejected_ref_logps)
                     reward_margins = chosen_rewards - rejected_rewards
                     loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
                     (loss * self.actor.device_mesh.size()).backward()

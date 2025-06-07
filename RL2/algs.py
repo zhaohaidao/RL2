@@ -2,23 +2,23 @@ from collections import defaultdict
 import torch
 import torch.distributed as dist
 
-def compute_seq_logps(batch, logps, device_mesh, avg=False):
+def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
 
     cu_seqlens = batch["cu_seqlens"]
-    partial_logps = torch.stack([
-        logps[:, start_idx:end_idx].sum()
+    partial_values = torch.stack([
+        values[:, start_idx:end_idx].sum()
         for start_idx, end_idx
         in zip(cu_seqlens[:-1], cu_seqlens[1:])
     ])
-    logps = partial_logps.detach()
+    values = partial_values.detach()
     dist.all_reduce(
-        logps,
+        values,
         op=dist.ReduceOp.SUM,
         group=device_mesh.get_group()
     )
-    logps = logps + partial_logps - partial_logps.detach()
+    values = values + partial_values - partial_values.detach()
 
-    if avg:
+    if operation == "mean":
         actions = torch.stack([
             batch["action_mask"][:, start_idx:end_idx].sum()
             for start_idx, end_idx
@@ -29,9 +29,9 @@ def compute_seq_logps(batch, logps, device_mesh, avg=False):
             op=dist.ReduceOp.SUM,
             group=device_mesh.get_group()
         )
-        logps = logps / (actions + torch.finfo(logps.dtype).eps)
+        values = values / (actions + torch.finfo(values.dtype).eps)
 
-    return logps
+    return values
 
 def compute_kl_term(
     logps: torch.Tensor,
