@@ -39,10 +39,10 @@ def tokenize_messages(tokenizer, messages):
         ])
 
     return {
-        "states": torch.LongTensor(states[:-1]).unsqueeze(0),
-        "actions": torch.LongTensor(actions[1:]).unsqueeze(0),
-        "action_mask": torch.LongTensor(action_mask[1:]).unsqueeze(0),
-        "position_ids": torch.arange(len(states) - 1).unsqueeze(0)
+        "states": torch.LongTensor(states[:-1]),
+        "actions": torch.LongTensor(actions[1:]),
+        "action_mask": torch.LongTensor(action_mask[1:]),
+        "position_ids": torch.arange(len(states) - 1)
     }
 
 

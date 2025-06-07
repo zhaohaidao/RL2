@@ -22,7 +22,7 @@ class DPODataset(BaseDataset):
             self.tokenizer,
             messages + [{"role": "assistant", "content": completion}]
         )
-        return {k: v[:, :self.max_length] for k, v in ex.items()}
+        return {k: v[:self.max_length] for k, v in ex.items()}
 
     def collate_fn(self, batch):
         return sum([list(ex) for ex in batch], [])

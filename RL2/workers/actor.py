@@ -128,10 +128,9 @@ class Actor(Worker):
         metric["rewards"].append(reward)
 
         ex = tokenize_messages(self.tokenizer, messages)
-        # TODO: unsqueeze in `scatter_and_pack_data_list`
         ex.update({
             "uid": uid,
-            "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward]).unsqueeze(0)
+            "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward])
         })  
 
         return ex, metric
@@ -163,7 +162,7 @@ class Actor(Worker):
             # filtering because it may exclude some trajectories within a 
             # group and affect the average reward.
             is_length_filtered = [
-                ex["states"].shape[-1] > self.config.sp_size * self.config.max_length_per_device
+                len(ex["states"]) > self.config.sp_size * self.config.max_length_per_device
                 for ex in data_list
             ]
             data_list = [
