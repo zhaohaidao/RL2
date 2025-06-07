@@ -61,6 +61,3 @@ class BaseDataset(Dataset):
 
     def __len__(self):
         return len(self.dataset)
-
-    def collate_fn(self, batch):
-        return list(batch)

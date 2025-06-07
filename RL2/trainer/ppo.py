@@ -18,7 +18,7 @@ class PPOTrainer(Trainer):
 
         if config.actor.kl.coef > 0:
             self.ref_actor = Actor(
-                config.actor, self.device_mesh, False
+                config.ref_actor, self.device_mesh, False
             )
         if config.adv.estimator == "gae":
             self.critic = Critic(config.critic, self.device_mesh)
