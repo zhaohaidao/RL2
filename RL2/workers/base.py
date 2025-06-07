@@ -121,20 +121,20 @@ class Worker:
             # See https://zhuanlan.zhihu.com/p/683714620.
             multiple_of = 2 * self.sp_device_mesh["sp"].size()
             for ex in data_list:
-                if ex["states"].shape[-1] % multiple_of == 0:
+                if len(ex["states"]) % multiple_of == 0:
                     continue
-                pad_tokens = multiple_of - ex["states"].shape[-1] % multiple_of
+                pad_tokens = multiple_of - len(ex["states"]) % multiple_of
                 for k, v in ex.items():
                     if not isinstance(v, torch.Tensor):
                         continue
                     ex[k] = torch.cat(
-                        (v, torch.zeros((1, pad_tokens), dtype=v.dtype)),
+                        (v, torch.zeros((pad_tokens), dtype=v.dtype)),
                     -1)
                 
             # We pack trajectories into minibatches for higher throughput.
             # To accommodate all trajectories, at least n_minibatches 
             # minibatches are needed.
-            seq_len_list = [ex["states"].shape[-1] for ex in data_list]
+            seq_len_list = [len(ex["states"]) for ex in data_list]
             if pair:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(dim=-1).flatten().tolist()
@@ -196,16 +196,16 @@ class Worker:
                     # subsequent operations, i.e., Actor.compute_logps, 
                     # Critic.compute_values, and Actor/Critic.update, are 
                     # element-wise.
-                    half_seqlen = tensor.shape[-1] // multiple_of
+                    half_seqlen = len(tensor) // multiple_of
                     tensor = torch.cat((
-                        tensor[:, rank * half_seqlen:(rank + 1) * half_seqlen],
-                        tensor[:, (multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
-                    ), -1)
+                        tensor[rank * half_seqlen:(rank + 1) * half_seqlen],
+                        tensor[(multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
+                    ))
                     tensors.append(tensor)
-                minibatch[k] = torch.cat(tensors, -1).to(torch.cuda.current_device())
+                minibatch[k] = torch.cat(tensors).unsqueeze(0).to(torch.cuda.current_device())
             # `update_params_of_ring_attn` requires `cu_seqlens` to mask 
             # the attention across trajectories within a minibatch. 
-            seqlens = torch.IntTensor([tensor.shape[-1] for tensor in tensors])
+            seqlens = torch.IntTensor([len(tensor) for tensor in tensors])
             minibatch["cu_seqlens"] = torch.cumsum(
                 torch.cat((torch.IntTensor([0]), seqlens)),
                 0, dtype=torch.int32
@@ -225,7 +225,7 @@ class Worker:
             ):
                 ex = {}
                 for k, v in minibatch.items():
-                    tensor = v[:, start_idx:end_idx]
+                    tensor = v.squeeze(0)[start_idx:end_idx]
                     tensors = [
                         torch.zeros_like(tensor)
                         for _ in range(self.sp_device_mesh["sp"].size())
@@ -237,19 +237,19 @@ class Worker:
                         group_dst=0
                     )
                     # Devices with non-zero sp rank process zero tensors.
-                    mid_idx = tensor.shape[-1] // 2
+                    mid_idx = len(tensor) // 2
                     inorder_tensors, reversed_tensors = [], []
                     for tensor in tensors:
-                        inorder_tensors.append(tensor[:, :mid_idx])
-                        reversed_tensors.append(tensor[:, mid_idx:])
+                        inorder_tensors.append(tensor[:mid_idx])
+                        reversed_tensors.append(tensor[mid_idx:])
                     ex[k] = torch.cat((
                         inorder_tensors + reversed_tensors[::-1]
-                    ), -1).to("cpu")
+                    )).to("cpu")
 
                 if self.sp_device_mesh["sp"].get_local_rank() == 0:
-                    length = torch.argmax(ex["position_ids"][0]).item()
+                    length = torch.argmax(ex["position_ids"]).item()
                     ex = {
-                        k: v[:, :length + 1] for k, v in ex.items()
+                        k: v[:length + 1] for k, v in ex.items()
                     }
                     ex["uid"] = uid[idx]
                 data_list.append(ex)

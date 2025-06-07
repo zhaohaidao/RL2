@@ -59,19 +59,19 @@ def compute_gae(data_list, gamma: float, lamda: float):
         # A_t = \delta_t + \gamma * \lambda * A_{t+1}
         # if s_{t+1} is a terminal state, V(s_{t+1}) = A_{t+1} = 0
         next_value, gae, reversed_gaes = 0, 0, []
-        for t in reversed(range(ex["states"].shape[-1])):
-            action_mask = ex["action_mask"][0, t]
+        for t in reversed(range(len(ex["states"]))):
+            action_mask = ex["action_mask"][t]
             if not action_mask:
                 reversed_gaes.append(0)
             else:
-                reward, value = ex["rewards"][0, t], ex["values"][0, t]
+                reward, value = ex["rewards"][t], ex["values"][t]
                 delta = reward + gamma * next_value - value
                 next_value = value
                 gae = delta + gamma * lamda * gae
                 reversed_gaes.append(gae)
         gaes = reversed_gaes[::-1]
 
-        ex["advantages"] = torch.FloatTensor([gaes])
+        ex["advantages"] = torch.FloatTensor(gaes)
         ex["returns"] = ex["advantages"] + ex["values"]
 
 def compute_baseline(data_list):
