@@ -22,9 +22,6 @@ class DPODataset(BaseDataset):
             self.tokenizer,
             messages + [{"role": "assistant", "content": completion}]
         )
-        ex.update({
-            "eos_mask": torch.LongTensor((ex["states"].shape[-1] - 1) * [0] + [1]).unsqueeze(0)
-        })
         return {k: v[:, :self.max_length] for k, v in ex.items()}
 
     def collate_fn(self, batch):

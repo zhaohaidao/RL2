@@ -129,11 +129,9 @@ class Actor(Worker):
 
         ex = tokenize_messages(self.tokenizer, messages)
         # TODO: unsqueeze in `scatter_and_pack_data_list`
-        # TODO: use `length` rather than `eos_mask`
         ex.update({
             "uid": uid,
-            "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward]).unsqueeze(0),
-            "eos_mask": torch.LongTensor((ex["states"].shape[-1] - 1) * [0] + [1]).unsqueeze(0)
+            "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward]).unsqueeze(0)
         })  
 
         return ex, metric
