@@ -247,7 +247,7 @@ class Worker:
                     ), -1).to("cpu")
 
                 if self.sp_device_mesh["sp"].get_local_rank() == 0:
-                    length = torch.where(ex["eos_mask"])[1][0].item()
+                    length = torch.argmax(ex["position_ids"][0]).item()
                     ex = {
                         k: v[:, :length + 1] for k, v in ex.items()
                     }
