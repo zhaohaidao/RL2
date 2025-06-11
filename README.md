@@ -14,7 +14,7 @@ Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*
 
 We also support
 
-* Sequence packing for higher throughput
+* Balanced sequence packing for higher throughput
 * Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
 ## Getting Started
