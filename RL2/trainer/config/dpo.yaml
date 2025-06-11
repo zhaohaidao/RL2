@@ -6,6 +6,7 @@ data:
 actor:
   model_name: null
   ref_model_name: ${actor.model_name}
+  optimizer_dir: null
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: null

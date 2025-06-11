@@ -4,7 +4,6 @@ import importlib
 from collections import defaultdict
 import torch
 import torch.distributed as dist
-from torch.nn.utils import clip_grad_norm_
 from liger_kernel.transformers import AutoLigerKernelForCausalLM
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
@@ -287,12 +286,8 @@ class Actor(Worker):
                     loss = loss + self.config.kl.coef * kl_loss
 
                 (loss * self.device_mesh.size()).backward() 
-            grad_norm = clip_grad_norm_(
-                self.model.parameters(),
-                max_norm=self.config.max_grad_norm
-            )
-            metrics["actor/grad_norm"].append(grad_norm.full_tensor().item())
-            self.optimizer_step()
+            grad_norm = self.optimizer_step()
+            metrics["actor/grad_norm"].append(grad_norm)
 
         self.log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:

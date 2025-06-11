@@ -1,6 +1,5 @@
 from collections import defaultdict
 import torch
-from torch.nn.utils import clip_grad_norm_
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
 from RL2.utils.ring_attn import update_params_of_ring_attn
@@ -73,12 +72,9 @@ class Critic(Worker):
                 metrics["critic/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["critic/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 
-            grad_norm = clip_grad_norm_(
-                self.model.parameters(),
-                max_norm=self.config.max_grad_norm
-            )
-            metrics["critic/grad_norm"].append(grad_norm.full_tensor().item())
-            self.optimizer_step()
+            grad_norm = self.optimizer_step()
+            metrics["critic/grad_norm"].append(grad_norm)
+            
 
         self.log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
