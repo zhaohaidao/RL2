@@ -50,13 +50,13 @@ class DPOTrainer(Trainer):
                     loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
                     (loss * self.actor.device_mesh.size()).backward()
 
-                    metrics["rewards/chosen"].append(chosen_rewards.tolist())
-                    metrics["rewards/rejected"].append(rejected_rewards.tolist())
-                    metrics["rewards/margin"].append(reward_margins.tolist())
+                    metrics["rewards/chosen"].extend(chosen_rewards.tolist())
+                    metrics["rewards/rejected"].extend(rejected_rewards.tolist())
+                    metrics["rewards/margin"].extend(reward_margins.tolist())
                     metrics["loss"].append(
                         self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
                     )
-                    metrics["accuray"].append((reward_margins > 0).tolist())
+                    metrics["accuray"].extend((reward_margins > 0).tolist())
 
                 grad_norm = clip_grad_norm_(
                     self.actor.model.parameters(),

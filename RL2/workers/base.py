@@ -219,7 +219,7 @@ class Worker:
         data_list = []
         for minibatch in minibatches:
             cu_seqlens = minibatch.pop("cu_seqlens")
-            uid = minibatch.pop("uid")
+            uids = minibatch.pop("uid") if "uid" in minibatch.keys() else None
             for idx, (start_idx, end_idx) in enumerate(
                 zip(cu_seqlens[:-1], cu_seqlens[1:])
             ):
@@ -251,7 +251,8 @@ class Worker:
                     ex = {
                         k: v[:length + 1] for k, v in ex.items()
                     }
-                    ex["uid"] = uid[idx]
+                    if uids is not None:
+                        ex["uid"] = uids[idx]
                 data_list.append(ex)
         
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
