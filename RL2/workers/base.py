@@ -2,6 +2,7 @@ from typing import List, Dict
 import os
 import math
 import torch
+from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.checkpoint.state_dict import (
@@ -75,16 +76,22 @@ class Worker:
                 weight_decay=self.config.weight_decay
             )
 
+            if self.config.optimizer_dir is not None:
+                self.optimizer.load_state_dict(
+                    torch.load(
+                        f"{self.config.optimizer_dir}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+                    )
+                )
+                self.offload_optimizer_to_cpu()
+
         self.offload_model_to_cpu()
 
-    @torch.no_grad()
     def offload_model_to_cpu(self):
         if not self.config.offload_model:
             return
         for param in self.model.parameters():
             param.data = param.data.to("cpu", non_blocking=True)
     
-    @torch.no_grad()
     def load_model_to_gpu(self):
         if not self.config.offload_model:
             return
@@ -92,6 +99,30 @@ class Worker:
             param.data = param.data.to(
                 torch.cuda.current_device(), non_blocking=True
             )
+
+    def offload_optimizer_to_cpu(self):
+
+        if not self.config.offload_optimizer:
+            return
+        for param_group in self.optimizer.param_groups:
+            for param in param_group["params"]:
+                state = self.optimizer.state[param]
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to("cpu", non_blocking=True)
+
+    def load_optimizer_to_gpu(self):
+
+        if not self.config.offload_optimizer or not self.optimizer.state:
+            return
+        for param_group in self.optimizer.param_groups:
+            for param in param_group["params"]:
+                state = self.optimizer.state[param]
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to(
+                            torch.cuda.current_device(), non_blocking=True
+                        )
 
     def scatter_and_pack_data_list(self, data_list, pack_minibatches=False, pair=False):
 
@@ -265,29 +296,19 @@ class Worker:
                     data_list[idx] = ex
                 return data_list
     
-    @torch.no_grad()
     def optimizer_step(self):
 
-        if self.config.offload_optimizer and self.optimizer.state:
-            for param_group in self.optimizer.param_groups:
-                for param in param_group['params']:
-                    state = self.optimizer.state[param]
-                    for key, value in state.items():
-                        if isinstance(value, torch.Tensor):
-                            state[key] = value.to(
-                                torch.cuda.current_device(), non_blocking=True
-                            )
+        grad_norm = clip_grad_norm_(
+            self.model.parameters(),
+            max_norm=self.config.max_grad_norm
+        )
 
+        self.load_optimizer_to_gpu()
         self.optimizer.step()
         self.optimizer.zero_grad()
+        self.offload_optimizer_to_cpu()
 
-        if self.config.offload_optimizer:
-            for param_group in self.optimizer.param_groups:
-                for param in param_group['params']:
-                    state = self.optimizer.state[param]
-                    for key, value in state.items():
-                        if isinstance(value, torch.Tensor):
-                            state[key] = value.to("cpu", non_blocking=True)
+        return grad_norm.full_tensor().item()
 
     def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 

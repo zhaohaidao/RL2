@@ -1,6 +1,5 @@
 import hydra
 from collections import defaultdict
-from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
 from transformers import AutoTokenizer
 from tqdm import tqdm
@@ -50,12 +49,8 @@ class SFTTrainer(Trainer):
                         self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
                     )
 
-                grad_norm = clip_grad_norm_(
-                    self.actor.model.parameters(),
-                    max_norm=self.actor.config.max_grad_norm
-                )
-                self.actor.optimizer_step()
-                metrics["grad_norm"].append(grad_norm.full_tensor().item())
+                grad_norm = self.actor.optimizer_step()
+                metrics["grad_norm"].append(grad_norm)
                 self.actor.log(
                     metrics, step, self.actor.sp_device_mesh["dp"]
                 )
