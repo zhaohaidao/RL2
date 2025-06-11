@@ -6,6 +6,7 @@ data:
   
 actor:
   model_name: null
+  ref_model_name: ${actor.model_name}
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: null
@@ -41,12 +42,6 @@ actor:
 
   entropy:
     coef: 0.0
-
-ref_actor:
-  model_name: ${actor.model_name}
-  sp_size: ${actor.sp_size}
-  max_length_per_device: ${actor.max_length_per_device}
-  offload_model: ${actor.offload_model}
 
 critic:
   model_name: ${actor.model_name}
