@@ -26,7 +26,7 @@ class DPOTrainer(Trainer):
         )
 
         self.actor = Actor(config.actor, self.device_mesh, True)
-        self.ref_actor = Actor(config.ref_actor, self.device_mesh, False)
+        self.ref_actor = Actor(config.actor, self.device_mesh, False)
 
     def train(self):
 

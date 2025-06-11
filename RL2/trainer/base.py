@@ -18,6 +18,7 @@ class Trainer:
         )
 
         if self.device_mesh.get_rank() == 0:
+            print(OmegaConf.to_yaml(config))
             if not config.trainer.disable_wandb:
                 wandb.init(
                     project=config.trainer.project,
