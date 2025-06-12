@@ -17,6 +17,8 @@ We also support
 * Balanced sequence packing for higher throughput
 * Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
+Check wandb report for [DPO](https://wandb.ai/chenmientan/UltraFeedback_archive).
+
 ## Getting Started
 
 Install the library using following command.

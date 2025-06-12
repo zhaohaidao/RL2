@@ -24,7 +24,7 @@ actor:
 
   rollout:
     tp_size: 1
-    gpu_memory_utilization: 0.5
+    gpu_memory_utilization: 0.6
     train_temperature: 1.0
     test_temperature: 0.0
     n_turns: 1
@@ -46,6 +46,7 @@ actor:
 
 critic:
   model_name: ${actor.model_name}
+  optimizer_dir: null
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: ${actor.max_length_per_device}

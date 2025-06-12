@@ -11,6 +11,7 @@ from torch.distributed.checkpoint.state_dict import (
 import transformers
 from peft import LoraConfig, TaskType, get_peft_model
 import wandb
+from tqdm import tqdm
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
 from RL2.utils.comm import gather_and_concat_list
         
@@ -309,6 +310,15 @@ class Worker:
         self.offload_optimizer_to_cpu()
 
         return grad_norm.full_tensor().item()
+
+    def tqdm(self, *args, **kwargs):
+        return tqdm(
+            *args,
+            position=1,
+            leave=False,
+            disable=(self.device_mesh.get_rank() != 0),
+            **kwargs
+        )
 
     def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 

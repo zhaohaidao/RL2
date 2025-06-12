@@ -9,6 +9,7 @@ from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+from tqdm.asyncio import tqdm
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_kl_term, compute_baseline
@@ -140,10 +141,11 @@ class Actor(Worker):
 
             loop = asyncio.get_event_loop()
             outputs = loop.run_until_complete(
-                asyncio.gather(*(
-                    self.single_rollout(ex, train)
-                    for ex in data_list
-                ))
+                tqdm.gather(
+                    *(self.single_rollout(ex, train) for ex in data_list),
+                    desc="Rollout", position=1, leave=False,
+                    disable=(self.device_mesh.get_rank() != 0)
+                )
             )
             if train:
                 # If test, llm will soon be called again. See `Trainer.train`.
@@ -239,9 +241,13 @@ class Actor(Worker):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list)
 
+        prefix = "old" if self.train else "ref"
+
         self.model.eval()
-        for minibatch in minibatches:
-            minibatch[f"{'old' if self.train else 'ref'}_logps"] = self.forward(minibatch)
+        for minibatch in self.tqdm(
+            minibatches, desc=f"Compute {prefix} logps"
+        ):
+            minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
@@ -251,6 +257,10 @@ class Actor(Worker):
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
+        tbar = self.tqdm(
+            total=sum([len(batch) for batch in batches]),
+            desc="Update actor"
+        )
         metrics = defaultdict(list)
         for batch in batches:
             
@@ -284,6 +294,7 @@ class Actor(Worker):
 
                 (loss * self.device_mesh.size()).backward() 
 
+                tbar.update()
                 # The losses on each device (resp. of minibatches within a 
                 # batch) are accumulated but the value will be averaged in 
                 # `Worker.log`. Therefore we multiply the world size (resp. 

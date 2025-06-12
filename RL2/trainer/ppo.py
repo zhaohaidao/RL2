@@ -87,8 +87,10 @@ class PPOTrainer(Trainer):
     
         for epoch in range(self.config.trainer.n_epochs):
             self.sampler.set_epoch(epoch)
-            for data_list in (
-                tqdm(self.train_dataloader) if self.device_mesh.get_rank() == 0 else self.train_dataloader
+            for data_list in tqdm(
+                self.train_dataloader,
+                desc=f"Epoch {epoch + 1}",
+                disable=(self.device_mesh.get_rank() != 0)
             ):
 
                 data_list = self.actor.rollout(data_list, True, step)
