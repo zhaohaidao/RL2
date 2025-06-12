@@ -36,7 +36,9 @@ class Critic(Worker):
         minibatches = self.scatter_and_pack_data_list(data_list)
 
         self.model.eval()
-        for minibatch in minibatches:
+        for minibatch in self.tqdm(
+            minibatches, desc=f"Compute values"
+        ):
             minibatch["values"] = self.forward(minibatch)
         
         # No need to offload model because it will be updated soon. See `Trainer.train`.
@@ -47,6 +49,10 @@ class Critic(Worker):
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
+        tbar = self.tqdm(
+            total=sum([len(batch) for batch in batches]),
+            desc="Update critic"
+        )
         metrics = defaultdict(list)
         for batch in batches:
 
@@ -69,6 +75,7 @@ class Critic(Worker):
                 
                 (loss * self.device_mesh.size()).backward()
 
+                tbar.update()
                 metrics["critic/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
                 metrics["critic/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
 

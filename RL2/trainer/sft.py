@@ -28,14 +28,16 @@ class SFTTrainer(Trainer):
     def train(self):
 
         step = 0
-        for _ in range(self.config.trainer.n_epochs):
-            for data_list in (
-                tqdm(self.dataloader) if self.device_mesh.get_rank() == 0 else self.dataloader
+        for epoch in range(self.config.trainer.n_epochs):
+            for data_list in tqdm(
+                self.dataloader,
+                desc=f"Epoch {epoch + 1}",
+                disable=(self.device_mesh.get_rank() != 0)
             ):
                 minibatches = self.actor.scatter_and_pack_data_list(data_list)
 
                 metrics = defaultdict(list)
-                for minibatch in minibatches:
+                for minibatch in self.actor.tqdm(minibatches):
                     logps = self.actor.forward(minibatch)
                     logps = sequence_all_reduce(
                         minibatch,

@@ -30,15 +30,17 @@ class DPOTrainer(Trainer):
     def train(self):
 
         step = 0
-        for _ in range(self.config.trainer.n_epochs):
-            for data_list in (
-                tqdm(self.dataloader) if self.device_mesh.get_rank() == 0 else self.dataloader
+        for epoch in range(self.config.trainer.n_epochs):
+            for data_list in tqdm(
+                self.dataloader,
+                desc=f"Epoch {epoch + 1}",
+                disable=(self.device_mesh.get_rank() != 0)
             ):
                 data_list = self.ref_actor.compute_logps(data_list)
                 minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
 
                 metrics = defaultdict(list)
-                for minibatch in minibatches:
+                for minibatch in self.actor.tqdm(minibatches):
                     logps = self.actor.forward(minibatch)
                     chosen_rewards, rejected_rewards = sequence_all_reduce(
                         minibatch,
