@@ -203,7 +203,7 @@ class Actor(Worker):
                 self.rollout_device_mesh["dp"]
             )
 
-    def forward(self, minibatch) -> torch.Tensor:
+    def forward(self, minibatch, compute_entropy=False) -> torch.Tensor:
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
@@ -221,11 +221,18 @@ class Actor(Worker):
         # from computations. For example, in `algs.compute_kl_term`, 
         # because the `logps` and `ref_logps` of non-action tokens are both 
         # zero, their KL terms are also zero, regardless of the estimator.
-        return torch.gather(
+        logps = torch.gather(
             logits.log_softmax(-1),
             dim=-1,
             index=minibatch["actions"].unsqueeze(-1)
         ).squeeze(-1) * minibatch["action_mask"]
+
+        if compute_entropy:
+            probs = logits.softmax(-1)
+            entropy = logits.logsumexp(-1) - (probs * logits).sum(-1)
+            return logps, entropy * minibatch["action_mask"]
+        else:
+            return logps
 
     @torch.no_grad()
     def compute_logps(self, data_list):
@@ -253,7 +260,7 @@ class Actor(Worker):
             
             for minibatch in batch:
 
-                logps = self.forward(minibatch)
+                logps, entropy = self.forward(minibatch, True)
                 ratio = (logps - minibatch["old_logps"]).exp()
                 clipped_ratio = torch.clamp(
                     ratio,
@@ -262,20 +269,10 @@ class Actor(Worker):
                 )
                 objective = minibatch["advantages"] * ratio
                 clipped_objective = minibatch["advantages"] * clipped_ratio
-                loss = - torch.min(objective, clipped_objective).sum() / total_actions
+                entropy = entropy.sum() / total_actions
+                policy_loss = - torch.min(objective, clipped_objective).sum() / total_actions
+                loss = policy_loss - self.config.entropy.coef * entropy
                 clip_ratio = (objective > clipped_objective).sum() / total_actions
-
-                # The losses on each device (resp. of minibatches within a 
-                # batch) are accumulated but the value will be averaged in 
-                # `Worker.log`. Therefore we multiply the world size (resp. 
-                # bsz) here to get the correct value.
-                metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
-                metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
-
-                if self.config.entropy.coef > 0:
-                    # TODO: compute entropy over the vocabulary.
-                    entropy_loss = logps.pow(2).sum() / 2 / total_actions
-                    loss = loss + self.config.entropy.coef * entropy_loss
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":
                     kl_loss = compute_kl_term(
@@ -286,6 +283,15 @@ class Actor(Worker):
                     loss = loss + self.config.kl.coef * kl_loss
 
                 (loss * self.device_mesh.size()).backward() 
+
+                # The losses on each device (resp. of minibatches within a 
+                # batch) are accumulated but the value will be averaged in 
+                # `Worker.log`. Therefore we multiply the world size (resp. 
+                # bsz) here to get the correct value.
+                metrics["actor/entropy"].append(self.device_mesh.size() * len(batch) * entropy.item())
+                metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
+                metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
+
             grad_norm = self.optimizer_step()
             metrics["actor/grad_norm"].append(grad_norm)
 
