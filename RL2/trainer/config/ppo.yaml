@@ -42,7 +42,7 @@ actor:
     # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
 
   entropy:
-    coef: 0.0
+    coef: 1e-3
 
 critic:
   model_name: ${actor.model_name}
