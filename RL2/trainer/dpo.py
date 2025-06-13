@@ -2,7 +2,7 @@ import hydra
 from collections import defaultdict
 import torch.nn.functional as F
 import torch.distributed as dist
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
@@ -26,6 +26,14 @@ class DPOTrainer(Trainer):
 
         self.actor = Actor(config.actor, self.device_mesh, True)
         self.ref_actor = Actor(config.actor, self.device_mesh, False)
+        
+        num_training_steps = self.config.trainer.n_epochs * len(self.dataloader)
+        num_warmup_steps = int(self.config.actor.warmup_ratio * num_training_steps)
+        self.scheduler = get_cosine_schedule_with_warmup(
+            self.actor.optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps
+        )
 
     def train(self):
 
@@ -60,6 +68,7 @@ class DPOTrainer(Trainer):
                     metrics["accuray"].extend((reward_margins > 0).tolist())
 
                 grad_norm = self.actor.optimizer_step()
+                self.scheduler.step()
                 metrics["grad_norm"].append(grad_norm)
                 self.actor.log(
                     metrics, step, self.actor.sp_device_mesh["dp"]
