@@ -16,6 +16,7 @@ actor:
   lr: 1e-6
   weight_decay: 1e-2
   max_grad_norm: 1.0
+  freeze_steps: 0
   offload_model: true
   offload_optimizer: true
   save_dir: ckpts/${trainer.experiment_name}/actor
@@ -24,7 +25,7 @@ actor:
 
   rollout:
     tp_size: 1
-    gpu_memory_utilization: 0.6
+    gpu_memory_utilization: 0.5
     train_temperature: 1.0
     test_temperature: 0.0
     n_turns: 1
@@ -42,7 +43,7 @@ actor:
     # `k1`, `k2` or `k3`. See http://joschu.net/blog/kl-approx.html.
 
   entropy:
-    coef: 1e-3
+    coef: 1e-4
 
 critic:
   model_name: ${actor.model_name}

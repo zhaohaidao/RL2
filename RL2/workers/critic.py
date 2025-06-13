@@ -36,9 +36,7 @@ class Critic(Worker):
         minibatches = self.scatter_and_pack_data_list(data_list)
 
         self.model.eval()
-        for minibatch in self.tqdm(
-            minibatches, desc=f"Compute values"
-        ):
+        for minibatch in self.tqdm(minibatches, desc="Compute values"):
             minibatch["values"] = self.forward(minibatch)
         
         # No need to offload model because it will be updated soon. See `Trainer.train`.

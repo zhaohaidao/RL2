@@ -253,6 +253,10 @@ class Actor(Worker):
         return self.resume_and_gather_data_list(minibatches) 
 
     def update(self, data_list, step: int):
+        if step < self.config.freeze_steps:
+            if self.rollout_device_mesh["tp"].get_local_rank() == 0:
+                self.llm.resume_memory_occupation()
+            return
         self.load_model_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
