@@ -17,7 +17,7 @@ We also support
 * Balanced sequence packing for higher throughput
 * Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
-Check wandb report for [DPO](https://wandb.ai/chenmientan/UltraFeedback_archive).
+RL2 is a production-ready library! Check our wandb report on [UltraFeedback](https://wandb.ai/chenmientan/UltraFeedback_archive).
 
 ## Getting Started
 
@@ -26,6 +26,25 @@ Install the library using following command.
 git clone https://github.com/ChenmienTan/RL2.git
 cd RL2
 pip install -e .
+```
+
+Use `torchrun` to launch the training. For example, for single node
+```
+torchrun \
+    --nproc_per_node=<number of GPUs> \
+    -m RL2.trainer.ppo \
+    <args>
+```
+For multi nodes
+```
+torchrun \
+    --nnodes=<number of nodes> \
+    --node_rank=<rank of node> \
+    --nproc_per_node=<number of GPUs on a node> \
+    --master_addr=<address of master node> \
+    --master_port=<port of master node> \
+    -m RL2.trainer.ppo \
+    <args>
 ```
 
 ## Acknowledgement
