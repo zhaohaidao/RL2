@@ -1,6 +1,7 @@
 from collections import defaultdict
 import torch
 import torch.distributed as dist
+from torch.nn.utils.rnn import pad_sequence
 
 def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
 
@@ -51,27 +52,31 @@ def compute_kl_term(
     else:
         raise NotImplementedError
 
-def compute_gae(data_list, gamma: float, lamda: float):
+def compute_gae(data_list, gamma, lamda):
 
+    rewards, values = [], []
     for ex in data_list:
+        indices = torch.where(ex["action_mask"])[0]
+        rewards.append(ex["rewards"][indices])
+        values.append(ex["values"][indices])
+    rewards = pad_sequence(rewards, True)
+    values = pad_sequence(values, True)
+    
+    # \delta_t = r_t + \gamma * V(s_{t+1}) - V(s_t)
+    next_values = torch.cat((values[:, 1:], torch.zeros((values.shape[0], 1))), -1)
+    deltas = rewards + gamma * next_values - values
 
-        # \delta_t = r_t + \gamma * V(s_{t+1}) - V(s_t)
-        # A_t = \delta_t + \gamma * \lambda * A_{t+1}
-        # if s_{t+1} is a terminal state, V(s_{t+1}) = A_{t+1} = 0
-        next_value, gae, reversed_gaes = 0, 0, []
-        for t in reversed(range(len(ex["states"]))):
-            action_mask = ex["action_mask"][t]
-            if not action_mask:
-                reversed_gaes.append(0)
-            else:
-                reward, value = ex["rewards"][t], ex["values"][t]
-                delta = reward + gamma * next_value - value
-                next_value = value
-                gae = delta + gamma * lamda * gae
-                reversed_gaes.append(gae)
-        gaes = reversed_gaes[::-1]
+    # A_t = \delta_t + \gamma * \lambda * A_{t+1}
+    gae, reversed_gaes = 0, []
+    for t in reversed(range(deltas.shape[-1])):
+        gae = deltas[:, t] + gamma * lamda * gae
+        reversed_gaes.append(gae)
+    gaes = torch.stack(reversed_gaes[::-1], -1)
 
-        ex["advantages"] = torch.FloatTensor(gaes)
+    for ex, gae in zip(data_list, gaes):
+        ex["advantages"] = torch.zeros_like(ex["rewards"])
+        indices = torch.where(ex["action_mask"])[0]
+        ex["advantages"][indices] = gae[:len(indices)]
         ex["returns"] = ex["advantages"] + ex["values"]
 
 def compute_baseline(data_list):
