@@ -17,7 +17,7 @@ We also support
 * Balanced sequence packing for higher throughput
 * Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
-RL2 is a production-ready library! Check our wandb report on [UltraFeedback](https://wandb.ai/chenmientan/UltraFeedback_archive).
+RL2 is a production-ready library! Check our wandb report on [SFT](https://wandb.ai/chenmientan/LIMO_archive) and [DPO](https://wandb.ai/chenmientan/UltraFeedback_archive).
 
 ## Getting Started
 
