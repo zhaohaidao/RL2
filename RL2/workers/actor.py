@@ -15,6 +15,7 @@ from RL2.dataset import tokenize_messages
 from RL2.algs import compute_kl_term, compute_baseline
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
+from RL2.utils.timing import time_logger
 
 
 class Actor(Worker):
@@ -135,6 +136,7 @@ class Actor(Worker):
 
         return ex, metric
 
+    @time_logger("rollout")
     def rollout(self, data_list, train: bool, step: int):
 
         if self.rollout_device_mesh["tp"].get_local_rank() == 0:
@@ -236,8 +238,9 @@ class Actor(Worker):
         else:
             return logps
 
+    @time_logger("compute_logps")
     @torch.no_grad()
-    def compute_logps(self, data_list):
+    def compute_logps(self, data_list, step):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list)
 
@@ -251,7 +254,8 @@ class Actor(Worker):
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
-
+    
+    @time_logger("update_actor")
     def update(self, data_list, step: int):
         if step < self.config.freeze_steps:
             if self.rollout_device_mesh["tp"].get_local_rank() == 0:

@@ -1,9 +1,10 @@
 from collections import defaultdict
 import torch
 from transformers import AutoModelForTokenClassification
-from RL2.workers import Worker
+from RL2.workers import Worker, time_logger
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.comm import sum_across_processes
+from RL2.utils.timing import time_logger
 
 
 class Critic(Worker):
@@ -30,8 +31,9 @@ class Critic(Worker):
             use_cache=False
         ).logits.squeeze(-1) * minibatch["action_mask"]
 
+    @time_logger("compute_values")
     @torch.no_grad()
-    def compute_values(self, data_list):
+    def compute_values(self, data_list, step):
         self.load_model_to_gpu()
         minibatches = self.scatter_and_pack_data_list(data_list)
 
@@ -42,6 +44,7 @@ class Critic(Worker):
         # No need to offload model because it will be updated soon. See `Trainer.train`.
         return self.resume_and_gather_data_list(minibatches)
 
+    @time_logger("update_critic")
     def update(self, data_list, step: int):
         # Model has been loaded in `compute_values`. See `Trainer.train`.
         batches = self.scatter_and_pack_data_list(data_list, True)

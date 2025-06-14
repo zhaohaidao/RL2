@@ -11,6 +11,7 @@ from RL2.algs import (
     compute_reinforce_adv
 )
 from RL2.utils.comm import initialize_global_process_group
+from RL2.utils.timing import time_logger
 
 
 class PPOTrainer(Trainer):
@@ -46,6 +47,7 @@ class PPOTrainer(Trainer):
             self.actor.rollout_device_mesh["dp"]
         )
     
+    @time_logger("compute_kl_term")
     def compute_kl_term(self, data_list, step):
         
         kl = 0
@@ -61,7 +63,8 @@ class PPOTrainer(Trainer):
         kl /= sum([ex["action_mask"].sum().item() for ex in data_list])
         wandb.log({"kl": kl}, step=step)
     
-    def compute_advantages(self, data_list):
+    @time_logger("compute_advantages")
+    def compute_advantages(self, data_list, step):
 
         if self.config.adv.estimator == "gae":
             compute_gae(
@@ -95,17 +98,17 @@ class PPOTrainer(Trainer):
 
                 data_list = self.actor.rollout(data_list, True, step)
 
-                data_list = self.actor.compute_logps(data_list)
+                data_list = self.actor.compute_logps(data_list, step)
                 if self.config.actor.kl.coef > 0:
-                    data_list = self.ref_actor.compute_logps(data_list)
+                    data_list = self.ref_actor.compute_logps(data_list, step)
                     if self.device_mesh.get_rank() == 0:
                         self.compute_kl_term(data_list, step)
 
                 if self.config.adv.estimator == "gae":
-                    data_list = self.critic.compute_values(data_list)
+                    data_list = self.critic.compute_values(data_list, step)
 
                 if self.device_mesh.get_rank() == 0:
-                    data_list = self.compute_advantages(data_list)
+                    data_list = self.compute_advantages(data_list, step)
 
                 if self.config.adv.estimator == "gae":
                     self.critic.update(data_list, step)
