@@ -1,4 +1,3 @@
-import torch
 from RL2.dataset import BaseDataset, tokenize_messages
 
 
