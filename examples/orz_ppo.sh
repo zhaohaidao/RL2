@@ -9,7 +9,8 @@ torchrun \
     actor.max_length_per_device=16384 \
     actor.freeze_steps=4 \
     actor.save_freq=32 \
-    actor.rollout.max_response_length=8192 \
+    actor.rollout.train_sampling_params.max_new_tokens=8192 \
+    actor.rollout.test_sampling_params.max_new_tokens=16384 \
     actor.rollout.env_path=envs/orz.py \
     adv.estimator=gae \
     trainer.project=OpenReasonerZero \

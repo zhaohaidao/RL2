@@ -1,3 +1,4 @@
+from omegaconf import OmegaConf
 import os
 import asyncio
 import importlib
@@ -75,15 +76,12 @@ class Actor(Worker):
                 enable_memory_saver=True
             )
         
-            self.train_sampling_params = {
-                "temperature": self.config.rollout.train_temperature,
-                "max_new_tokens": self.config.rollout.max_response_length
-            }
-
-            self.test_sampling_params = {
-                "temperature": self.config.rollout.test_temperature,
-                "max_new_tokens": self.config.rollout.max_response_length
-            }
+            self.train_sampling_params = OmegaConf.to_container(
+                self.config.rollout.train_sampling_params
+            )
+            self.test_sampling_params = OmegaConf.to_container(
+                self.config.rollout.test_sampling_params
+            )
 
         dist.barrier()
 
@@ -183,7 +181,7 @@ class Actor(Worker):
                 ex["uid"] not in valid_uids for ex in data_list
             ]
             data_list = [
-                ex for ex, filtered in zip(data_list, is_length_filtered)
+                ex for ex, filtered in zip(data_list, is_group_filtered)
                 if not filtered
             ]
             metrics["group_filtering_ratio"] = is_group_filtered
@@ -217,7 +215,7 @@ class Actor(Worker):
             position_ids=minibatch["position_ids"],
             use_cache=False
         ).logits / (
-            self.config.rollout.train_temperature
+            self.config.rollout.train_sampling_params.temperature
             if hasattr(self.config, "rollout") else 1.0
         )
 

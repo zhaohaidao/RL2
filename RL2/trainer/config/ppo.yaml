@@ -26,8 +26,12 @@ actor:
   rollout:
     tp_size: 1
     gpu_memory_utilization: 0.5
-    train_temperature: 1.0
-    test_temperature: 0.0
+    train_sampling_params:
+      temperature: 1.0
+      max_new_tokens: null
+    test_sampling_params:
+      temperature: 0.0
+      max_new_tokens: null
     n_turns: 1
     max_response_length: null
     env_path: null
