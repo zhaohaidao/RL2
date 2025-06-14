@@ -61,7 +61,7 @@ class PPOTrainer(Trainer):
                 ex["rewards"] -= self.config.actor.kl.coef * kl_term
             kl += kl_term.sum().item()
         kl /= sum([ex["action_mask"].sum().item() for ex in data_list])
-        wandb.log({"kl": kl}, step=step)
+        wandb.log({"actor/kl": kl}, step=step)
     
     @time_logger("compute_advantages")
     def compute_advantages(self, data_list, step):

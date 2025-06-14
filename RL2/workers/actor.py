@@ -257,11 +257,10 @@ class Actor(Worker):
     
     @time_logger("update_actor")
     def update(self, data_list, step: int):
-        if step < self.config.freeze_steps:
-            if self.rollout_device_mesh["tp"].get_local_rank() == 0:
-                self.llm.resume_memory_occupation()
-            return
         self.load_model_to_gpu()
+        if step < self.config.freeze_steps:
+            self.sync_llm_weight()
+            return
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
@@ -317,6 +316,10 @@ class Actor(Worker):
         self.log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
+
+        self.sync_llm_weight()
+
+    def sync_llm_weight(self):
 
         torch.cuda.empty_cache()
         # or llm.resume_memory_occupation() may OOM
