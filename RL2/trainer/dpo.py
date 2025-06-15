@@ -9,6 +9,7 @@ from RL2.dataset import DPODataset
 from RL2.workers import Actor
 from RL2.algs import sequence_all_reduce
 from RL2.utils.comm import initialize_global_process_group
+from RL2.utils.timing import time_logger
 
 
 class DPOTrainer(Trainer):
@@ -35,6 +36,38 @@ class DPOTrainer(Trainer):
             num_training_steps=num_training_steps
         )
 
+    @time_logger("update_actor")
+    def update_actor(self, data_list, step):
+
+        minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
+
+        metrics = defaultdict(list)
+        for minibatch in self.actor.tqdm(minibatches):
+            logps = self.actor.forward(minibatch)
+            chosen_rewards, rejected_rewards = sequence_all_reduce(
+                minibatch,
+                self.config.trainer.beta * (logps - minibatch["ref_logps"]),
+                self.actor.sp_device_mesh["sp"]
+            ).view(-1, 2).T
+            reward_margins = chosen_rewards - rejected_rewards
+            loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
+            (loss * self.actor.device_mesh.size()).backward()
+
+            metrics["rewards/chosen"].extend(chosen_rewards.tolist())
+            metrics["rewards/rejected"].extend(rejected_rewards.tolist())
+            metrics["rewards/margin"].extend(reward_margins.tolist())
+            metrics["loss"].append(
+                self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
+            )
+            metrics["accuray"].extend((reward_margins > 0).tolist())
+
+        grad_norm = self.actor.optimizer_step()
+        self.scheduler.step()
+        metrics["grad_norm"].append(grad_norm)
+        self.actor.log(
+            metrics, step, self.actor.sp_device_mesh["dp"]
+        )
+
     def train(self):
 
         step = 0
@@ -44,35 +77,8 @@ class DPOTrainer(Trainer):
                 desc=f"Epoch {epoch + 1}",
                 disable=(self.device_mesh.get_rank() != 0)
             ):
-                data_list = self.ref_actor.compute_logps(data_list)
-                minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
-
-                metrics = defaultdict(list)
-                for minibatch in self.actor.tqdm(minibatches):
-                    logps = self.actor.forward(minibatch)
-                    chosen_rewards, rejected_rewards = sequence_all_reduce(
-                        minibatch,
-                        self.config.trainer.beta * (logps - minibatch["ref_logps"]),
-                        self.actor.sp_device_mesh["sp"]
-                    ).view(-1, 2).T
-                    reward_margins = chosen_rewards - rejected_rewards
-                    loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
-                    (loss * self.actor.device_mesh.size()).backward()
-
-                    metrics["rewards/chosen"].extend(chosen_rewards.tolist())
-                    metrics["rewards/rejected"].extend(rejected_rewards.tolist())
-                    metrics["rewards/margin"].extend(reward_margins.tolist())
-                    metrics["loss"].append(
-                        self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
-                    )
-                    metrics["accuray"].extend((reward_margins > 0).tolist())
-
-                grad_norm = self.actor.optimizer_step()
-                self.scheduler.step()
-                metrics["grad_norm"].append(grad_norm)
-                self.actor.log(
-                    metrics, step, self.actor.sp_device_mesh["dp"]
-                )
+                data_list = self.ref_actor.compute_logps(data_list, step)
+                self.update_actor(data_list, step)
                 step += 1
 
                 if self.actor.config.save_freq is not None and step % self.actor.config.save_freq == 0:
