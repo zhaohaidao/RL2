@@ -2,14 +2,14 @@
 
 A concise library of reinforcement learning for large language models.
 
-This is the right library for you if you are tired with complicated abstractions and wish to learn reinforcement learning for large language models or perform a quick test for your own algorithm.
-We deliver a clear implementation (see `RL2.trainer.ppo.PPOTrainer.train`) within 1K lines.
-You can simply launch the training with `torchrun` as you do in supervised fine-tuning (see `examples/orz_reinforce.sh`).
+This is the right library for you if you are tired with complicated abstractions.
+We deliver a clear implementation within 1K lines.
+You can simply launch the training with `torchrun` as you do in supervised fine-tuning.
 
 Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
 * Model partition via Fully Sharded Data Parallelism
-* Sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
+* Efficient sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
 * Inference engine and KV cache partition via Tensor Parallelism
 
 We also support
@@ -17,16 +17,68 @@ We also support
 * Balanced sequence packing for higher throughput
 * Multi-turn rollout with [SGLang](https://github.com/sgl-project/sglang) async inference engine
 
-RL2 is a production-ready library! Check our wandb report on [SFT](https://wandb.ai/chenmientan/LIMO_archive) and [DPO](https://wandb.ai/chenmientan/UltraFeedback_archive).
+RL2 is a production-ready library! Check our wandb report on [SFT](https://wandb.ai/chenmientan/LIMO_archive), [DPO](https://wandb.ai/chenmientan/UltraFeedback_archive), and [PPO](https://wandb.ai/chenmientan/OpenReasonerZero_archive).
 
 ## Getting Started
 
-Install the library using following command.
+
+### Installation
+
 ```
 git clone https://github.com/ChenmienTan/RL2.git
 cd RL2
 pip install -e .
 ```
+
+
+### Data
+
+Hugging Face dataset and various file types, including JSON, JSONL, CSV, Parquet, and Arrow, are accepted.
+The data should be in the following format
+
+```
+[
+    {
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of China?"}
+        ],
+        "answer": "Beijing"
+    }
+]
+```
+
+### Reward
+
+The reward function should be in the follwing format.
+Specify the path to the Python script including the function via `actor.rollout.env_path`.
+
+```
+def reward_fn(messages, answer):
+    pred = parse_answer(messages[-1]["content"])
+    return float(is_equivalent(pred, answer))
+```
+
+If a reward model is used, it should be served outside of the training framework, *e.g.*, using vLLM or SGLang, and be accessed in the reward function.
+
+### Tools
+
+RL2 supports multi-turn rollout with function calling.
+In this case, you should set `actor.rollout.n_turns > 1` and include function `interact` with the following format in the Python script including the reward function.
+You should parse the called functions in past messages and return new messages including the results.
+An empty list indicates no function is called.
+
+```
+def interact(messages):
+    queries = parse_query(messages[-1]["content])
+    results = [search(query) for query in queries]
+    return [
+        {"role": "tool", "content": result}
+        for result in results
+    ]
+```
+
+### Training
 
 Use `torchrun` to launch the training. For example, for single node
 ```

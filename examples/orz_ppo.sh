@@ -6,11 +6,11 @@ torchrun \
     data.prompts_per_rollout=128 \
     data.responses_per_prompt=64 \
     actor.model_name=Qwen/Qwen2.5-7B \
-    actor.max_length_per_device=16384 \
+    actor.sp_size=2 \
+    actor.max_length_per_device=8192 \
     actor.freeze_steps=4 \
     actor.save_freq=32 \
     actor.rollout.train_sampling_params.max_new_tokens=8192 \
-    actor.rollout.test_sampling_params.max_new_tokens=16384 \
     actor.rollout.env_path=envs/orz.py \
     adv.estimator=gae \
     trainer.project=OpenReasonerZero \
