@@ -1,5 +1,6 @@
 from omegaconf import OmegaConf
 import os
+import json
 import asyncio
 import importlib
 from collections import defaultdict
@@ -132,7 +133,7 @@ class Actor(Worker):
             "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward])
         })  
 
-        return ex, metric
+        return ex, messages, metric
 
     @time_logger("rollout")
     def rollout(self, data_list, train: bool, step: int):
@@ -151,7 +152,9 @@ class Actor(Worker):
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
 
-            data_list, metrics = map(list, zip(*outputs))
+            data_list, all_messages, metrics = map(list, zip(*outputs))
+            if self.device_mesh.get_rank() == 0:
+                tqdm.write(json.dumps(all_messages[0], indent=4))
             metrics = {
                 k: sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()

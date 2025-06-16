@@ -330,10 +330,16 @@ class Worker:
         }
         
         if self.device_mesh.get_rank() == 0:
-            wandb.log({
+            metrics = {
                 k: torch.Tensor(v).mean().item()
                 for k, v in metrics.items()
-            }, step=step)
+            }
+            tqdm.write(
+                f"Step {step + 1}, " + ", ".join([
+                    f"{k}: {v:.3g}" for k, v in metrics.items()
+                ])
+            )
+            wandb.log(metrics, step=step)
 
     def save(self, step):
 

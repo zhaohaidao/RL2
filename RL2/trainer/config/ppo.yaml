@@ -33,7 +33,6 @@ actor:
       temperature: 0.0
       max_new_tokens: ${actor.rollout.train_sampling_params.max_new_tokens}
     n_turns: 1
-    max_response_length: null
     env_path: null
     group_filtering:
       lower: 0.0
