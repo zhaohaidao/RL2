@@ -28,5 +28,6 @@ actor:
 trainer:
   project: null
   experiment_name: null
+  fsdp_size: 0
   n_epochs: 1
   disable_wandb: false
