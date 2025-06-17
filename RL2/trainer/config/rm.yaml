@@ -3,14 +3,13 @@ data:
   max_length: null
   batch_size: 128
 
-actor:
+critic:
   model_name: null
-  ref_model_name: ${actor.model_name}
   optimizer_dir: null
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: null
-  lr: 5e-7
+  lr: 1e-5
   weight_decay: 1e-2
   max_grad_norm: 1.0
   warmup_ratio: 0.1
@@ -20,15 +19,8 @@ actor:
   save_freq: null
   save_optimizer: true
 
-  lora:
-    rank: 0
-    alpha: 16
-    target_modules: all-linear
-    dropout: 0
-
 trainer:
   project: null
   experiment_name: null
   n_epochs: 1
-  beta: 0.1
   disable_wandb: false
