@@ -353,7 +353,7 @@ class Worker:
             )
             wandb.log(metrics, step=step)
 
-    def save(self, step):
+    def save(self, step, model_cls=None):
 
         path = f"{self.config.save_dir}/step{step}"
         os.makedirs(path, exist_ok=True)
@@ -373,10 +373,11 @@ class Worker:
             if hasattr(self.config, "lora") and self.config.lora.rank > 0:
                 model_to_save = self.model
             else:
-                model_cls = getattr(
-                    transformers,
-                    self.model.__class__.__name__.removeprefix("FSDP")
-                )
+                if model_cls is None:
+                    model_cls = getattr(
+                        transformers,
+                        self.model.__class__.__name__.removeprefix("FSDP")
+                    )
                 with torch.device("meta"):
                     model_to_save = model_cls._from_config(self.model.config)
             model_to_save.save_pretrained(
