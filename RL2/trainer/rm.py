@@ -2,11 +2,7 @@ import hydra
 from collections import defaultdict
 import torch.nn.functional as F
 import torch.distributed as dist
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSequenceClassification,
-    get_cosine_schedule_with_warmup
-)
+from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import RMDataset
@@ -79,13 +75,9 @@ class RMTrainer(Trainer):
                 step += 1
 
                 if self.critic.config.save_freq is not None and step % self.critic.config.save_freq == 0:
-                    self.critic.save(
-                        step, model_cls=AutoModelForSequenceClassification
-                    )
+                    self.critic.save(step)
 
-        self.critic.save(
-            step, model_cls=AutoModelForSequenceClassification
-        )
+        self.critic.save(step)
 
 
 @hydra.main(config_path="config", config_name="rm", version_base=None)

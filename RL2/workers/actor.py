@@ -18,7 +18,7 @@ from RL2.algs import compute_kl_term, compute_baseline
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.cut_cross_entropy import (
     substitute_lm_head_forward,
-    update_params_of_cce
+    update_params_of_linear_cross_entropy
 )
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
 from RL2.utils.timing import time_logger
@@ -60,6 +60,10 @@ class Actor(Worker):
             )
         )
 
+        # Multi-node inference is not supported yet. We consider that 
+        # FSDP suffers inferior efficiency for 100B+ models. If your 
+        # model is smaller than 100B, then you probably should not use
+        # multi-node inference for the maximal throughput.
         if "TORCHELASTIC_USE_AGENT_STORE" in os.environ.keys():
             del os.environ["TORCHELASTIC_USE_AGENT_STORE"]
         monkey_patch_torch_reductions()
@@ -218,12 +222,12 @@ class Actor(Worker):
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
-        update_params_of_cce(
+        update_params_of_linear_cross_entropy(
             minibatch["actions"],
             self.config.rollout.train_sampling_params.temperature
             if hasattr(self.config, "rollout") else 1.0
         )
-
+        # TODO: sometimes entropy is not needed
         logps, entropy = self.model(
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],

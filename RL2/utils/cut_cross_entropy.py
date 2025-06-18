@@ -104,7 +104,7 @@ def substitute_lm_head_forward(model):
         LCE_PARAMS["temperature"]
     )
 
-def update_params_of_cce(actions, action_mask, temperature):
+def update_params_of_linear_cross_entropy(actions, temperature):
     LCE_PARAMS.update({
         "actions": actions,
         "temperature": temperature

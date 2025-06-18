@@ -87,6 +87,7 @@ class Worker:
         fully_shard(self.model, **kwargs) 
 
         if self.train:
+
             self.optimizer = torch.optim.AdamW(
                 self.model.parameters(),
                 lr=self.config.lr,
@@ -147,7 +148,9 @@ class Worker:
             # Pack minibatches into multiple batches, where each batch is 
             # used for an update and contains multiple minibatches.
             if dist.get_rank() == 0:
-                n_trajectories_per_update = len(data_list) // self.config.update_per_rollout
+                n_trajectories_per_update = math.ceil(
+                    len(data_list) / self.config.update_per_rollout
+                )
                 return [
                     self.scatter_and_pack_data_list(
                         data_list[update * n_trajectories_per_update:(update + 1) * n_trajectories_per_update],
@@ -186,6 +189,7 @@ class Worker:
             if pair:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(dim=-1).flatten().tolist()
+            # TODO: When inference, perhaps use a larger `max_length_per_device`.
             n_minibatches = math.ceil(
                 sum(seq_len_list) / (
                     self.config.max_length_per_device * self.sp_device_mesh["sp"].size()
@@ -200,8 +204,9 @@ class Worker:
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             # Partition data into n_minibatches balanced minibatches.
-            # We cache the shuffle indices for sorting the data in 
+            # We cache the shuffle indices to resume data order in 
             # `resume_and_gather_data_list`.
+            # TODO: perhaps not enough data to scatter
             partitions: List[List[int]] = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )
@@ -232,7 +237,9 @@ class Worker:
         multiple_of = 2 * self.sp_device_mesh["sp"].size()
         minibatches = []
         for data in data_list:
-            minibatch = {"uid": [ex.pop("uid") for ex in data]} if "uid" in data[0].keys() else {}
+            minibatch = {
+                "uid": [ex.pop("uid") for ex in data]
+            } if "uid" in data[0].keys() else {}
             for k in data[0].keys():
                 tensors = []
                 for ex in data:
@@ -299,8 +306,8 @@ class Worker:
                     ex = {
                         k: v[:length + 1] for k, v in ex.items()
                     }
-                    if uids is not None:
-                        ex["uid"] = uids[idx]
+                if uids is not None:
+                    ex["uid"] = uids[idx]
                 data_list.append(ex)
         
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
@@ -344,6 +351,7 @@ class Worker:
         }
         
         if dist.get_rank() == 0:
+            # TODO: some metrics needed to be summed
             metrics = {
                 k: torch.Tensor(v).mean().item()
                 for k, v in metrics.items()
@@ -355,7 +363,7 @@ class Worker:
             )
             wandb.log(metrics, step=step)
 
-    def save(self, step, model_cls=None):
+    def save(self, step):
 
         path = f"{self.config.save_dir}/step{step}"
         os.makedirs(path, exist_ok=True)
@@ -368,18 +376,18 @@ class Worker:
         if dist.get_rank() == 0:
 
             self.tokenizer.save_pretrained(path)
-
+            # We save model in half precision to save time.
             state_dict = {
                 k: v.to(torch.bfloat16) for k, v in state_dict.items()
             }
             if hasattr(self.config, "lora") and self.config.lora.rank > 0:
                 model_to_save = self.model
             else:
-                if model_cls is None:
-                    model_cls = getattr(
-                        transformers,
-                        self.model.__class__.__name__.removeprefix("FSDP")
-                    )
+                # TODO: should save `SequenceClassification` model for RM
+                model_cls = getattr(
+                    transformers,
+                    self.model.__class__.__name__.removeprefix("FSDP")
+                )
                 with torch.device("meta"):
                     model_to_save = model_cls._from_config(self.model.config)
             model_to_save.save_pretrained(
