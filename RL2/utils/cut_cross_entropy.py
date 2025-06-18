@@ -97,23 +97,15 @@ LCE_PARAMS = {}
 
 def substitute_lm_head_forward(model):
 
-    def _lm_head_forward(hidden_states):
-
-        logps, entropy = linear_cross_entropy(
-            hidden_states,
-            model.lm_head.weight,
-            LCE_PARAMS["actions"], 
-            LCE_PARAMS["temperature"]
-        )
-        logps = logps.unsqueeze(0) * LCE_PARAMS["action_mask"]
-        entropy = entropy.unsqueeze(0) * LCE_PARAMS["action_mask"]
-        return logps, entropy
-
-    model.lm_head.forward = _lm_head_forward
+    model.lm_head.forward = lambda hidden_states: linear_cross_entropy(
+        hidden_states,
+        model.lm_head.weight,
+        LCE_PARAMS["actions"], 
+        LCE_PARAMS["temperature"]
+    )
 
 def update_params_of_cce(actions, action_mask, temperature):
     LCE_PARAMS.update({
         "actions": actions,
-        "action_mask": action_mask,
         "temperature": temperature
     })

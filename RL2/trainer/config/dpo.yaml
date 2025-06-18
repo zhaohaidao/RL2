@@ -11,6 +11,7 @@ actor:
   sp_size: 1
   gradient_checkpointing: true
   max_length_per_device: null
+  beta: 0.1
   lr: 5e-7
   weight_decay: 1e-2
   max_grad_norm: 1.0
@@ -30,5 +31,4 @@ trainer:
   project: null
   experiment_name: null
   n_epochs: 1
-  beta: 0.1
   disable_wandb: false

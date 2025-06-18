@@ -46,7 +46,7 @@ class DPOTrainer(Trainer):
             logps, _ = self.actor.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 minibatch,
-                self.config.trainer.beta * (logps - minibatch["ref_logps"]),
+                self.config.actor.beta * (logps - minibatch["ref_logps"]),
                 self.actor.sp_device_mesh["sp"]
             ).view(-1, 2).T
             reward_margins = chosen_rewards - rejected_rewards

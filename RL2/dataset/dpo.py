@@ -1,19 +1,7 @@
-from RL2.dataset import BaseDataset, tokenize_messages
+from RL2.dataset import RMDataset, tokenize_messages
 
 
-class DPODataset(BaseDataset):
-
-    def __getitem__(self, idx):
-
-        ex = self.dataset[idx]
-        messages = ex["messages"]
-        chosen = ex["chosen"]
-        rejected = ex["rejected"]
-
-        chosen = self.tokenize_messages_completion(messages, chosen)
-        rejected = self.tokenize_messages_completion(messages, rejected)
-
-        return chosen, rejected
+class DPODataset(RMDataset):
     
     def tokenize_messages_completion(self, messages, completion):
 
@@ -22,6 +10,3 @@ class DPODataset(BaseDataset):
             messages + [{"role": "assistant", "content": completion}]
         )
         return {k: v[:self.max_length] for k, v in ex.items()}
-
-    def collate_fn(self, batch):
-        return sum([list(ex) for ex in batch], [])

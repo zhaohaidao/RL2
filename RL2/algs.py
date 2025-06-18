@@ -4,7 +4,13 @@ import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
 
 def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
+    # When using sequence parallelism, tokens are distributed 
+    # across multiple devices, while it may require the avg ( 
+    # resp. sum) of logps of all tokens to compute the loss in
+    # SFT (resp. DPO).
 
+    # We firstly compute the sum of logps, despite that the 
+    # sum is not involved in the computation graph.
     cu_seqlens = batch["cu_seqlens"]
     partial_values = torch.stack([
         values[:, start_idx:end_idx].sum()
@@ -17,6 +23,10 @@ def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
         op=dist.ReduceOp.SUM,
         group=device_mesh.get_group()
     )
+    # Then, we keep the sum unchanged and let it involve in the
+    # computation graph of the corresponding device.
+    # All SP ranks will share identical loss, while they will 
+    # perform backpropagation on their respective tokens.
     values = values + partial_values - partial_values.detach()
 
     if operation == "mean":
@@ -54,12 +64,14 @@ def compute_kl_term(
 
 def compute_gae(data_list, gamma, lamda):
 
+    # extract rewards and values of action tokens
     rewards, values, action_mask = [], [], []
     for ex in data_list:
         indices = torch.where(ex["action_mask"])[0]
         rewards.append(ex["rewards"][indices])
         values.append(ex["values"][indices])
         action_mask.append(ex["action_mask"][indices])
+    # pad to identical length for efficient computation
     rewards = pad_sequence(rewards, True)
     values = pad_sequence(values, True)
     action_mask = pad_sequence(action_mask, True)

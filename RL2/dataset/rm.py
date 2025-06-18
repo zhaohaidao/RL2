@@ -1,8 +1,20 @@
 import torch
-from RL2.dataset import DPODataset
+from RL2.dataset import BaseDataset
 
 
-class RMDataset(DPODataset):
+class RMDataset(BaseDataset):
+
+    def __getitem__(self, idx):
+
+        ex = self.dataset[idx]
+        messages = ex["messages"]
+        chosen = ex["chosen"]
+        rejected = ex["rejected"]
+
+        chosen = self.tokenize_messages_completion(messages, chosen)
+        rejected = self.tokenize_messages_completion(messages, rejected)
+
+        return chosen, rejected
 
     def tokenize_messages_completion(self, messages, completion):
 
@@ -16,3 +28,6 @@ class RMDataset(DPODataset):
             "action_mask": torch.LongTensor(action_mask),
             "position_ids": torch.arange(len(states))
         }
+    
+    def collate_fn(self, batch):
+        return sum([list(ex) for ex in batch], [])

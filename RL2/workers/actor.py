@@ -96,7 +96,7 @@ class Actor(Worker):
 
         uid, messages, answer = ex["uid"], ex["messages"], ex["answer"]
         metric = defaultdict(list)
-        for turn in range(self.config.rollout.n_turns):
+        for turn in range(self.config.rollout.max_turns):
 
             prompt = self.tokenizer.apply_chat_template(
                 messages,
@@ -118,7 +118,7 @@ class Actor(Worker):
             )
 
             # Do not invoke tools in the last turn.
-            if turn + 1 == self.config.rollout.n_turns:
+            if turn + 1 == self.config.rollout.max_turns:
                 break
 
             env_messages = self.env.interact(messages)
@@ -219,16 +219,19 @@ class Actor(Worker):
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
         update_params_of_cce(
-            minibatch["actions"], minibatch["action_mask"],
+            minibatch["actions"],
             self.config.rollout.train_sampling_params.temperature
             if hasattr(self.config, "rollout") else 1.0
         )
 
-        return self.model(
+        logps, entropy = self.model(
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
             use_cache=False
         ).logits
+        logps = logps.unsqueeze(0) * minibatch["action_mask"]
+        entropy = entropy.unsqueeze(0) * minibatch["action_mask"]
+        return logps, entropy
 
     @time_logger("compute_logps")
     @torch.no_grad()

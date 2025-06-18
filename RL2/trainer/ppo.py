@@ -85,6 +85,7 @@ class PPOTrainer(Trainer):
             self.actor.rollout(data_list, False, step)
     
         for epoch in range(self.config.trainer.n_epochs):
+            # TODO: resume training
             self.sampler.set_epoch(epoch)
             for data_list in tqdm(
                 self.train_dataloader,
