@@ -9,8 +9,8 @@ actor:
   ref_model_name: ${actor.model_name}
   optimizer_dir: null
   fsdp_size: 0
-  gradient_checkpointing: true
   sp_size: 1
+  gradient_checkpointing: true
   max_length_per_device: null
   clip: 0.2
   update_per_rollout: 1

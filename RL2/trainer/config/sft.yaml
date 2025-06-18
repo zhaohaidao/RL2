@@ -7,8 +7,8 @@ actor:
   model_name: null
   optimizer_dir: null
   fsdp_size: 0
-  gradient_checkpointing: true
   sp_size: 1
+  gradient_checkpointing: true
   max_length_per_device: null
   lr: 5e-6
   weight_decay: 1e-2
