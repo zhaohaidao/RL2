@@ -20,9 +20,7 @@ class PPOTrainer(Trainer):
         super().__init__(config)
 
         if config.actor.kl.coef > 0:
-            self.ref_actor = Actor(
-                config.actor, False
-            )
+            self.ref_actor = Actor(config.actor, False)
         if config.adv.estimator == "gae":
             self.critic = Critic(config.critic)
         self.actor = Actor(config.actor, True)
@@ -79,8 +77,6 @@ class PPOTrainer(Trainer):
             )
         else:
             raise NotImplementedError
-
-        return data_list
             
     def train(self):
 
@@ -108,7 +104,7 @@ class PPOTrainer(Trainer):
                     data_list = self.critic.compute_values(data_list, step)
 
                 if dist.get_rank() == 0:
-                    data_list = self.compute_advantages(data_list, step)
+                    self.compute_advantages(data_list, step)
 
                 if self.config.adv.estimator == "gae":
                     self.critic.update(data_list, step)

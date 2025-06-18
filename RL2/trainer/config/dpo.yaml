@@ -15,7 +15,6 @@ actor:
   weight_decay: 1e-2
   max_grad_norm: 1.0
   warmup_ratio: 0.1
-  offload_model: false
   offload_optimizer: false
   save_dir: ckpts/${trainer.experiment_name}
   save_freq: null
@@ -31,6 +30,5 @@ trainer:
   project: null
   experiment_name: null
   n_epochs: 1
-  alpha: 0.0
   beta: 0.1
   disable_wandb: false

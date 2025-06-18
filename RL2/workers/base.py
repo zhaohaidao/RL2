@@ -54,7 +54,7 @@ class Worker:
     def prepare_model_optimizer(self):
 
         if hasattr(self.config, "lora") and self.config.lora.rank > 0:
-            # only support SFT and DPO for now
+            # TODO: support LoRA for RM and PPO
             self.model.enable_input_require_grads()
 
             lora_config = LoraConfig(
@@ -80,7 +80,9 @@ class Worker:
                 output_dtype=torch.bfloat16
             )
         for module in self.model.modules():
-            if module.__class__.__name__ in self.model._no_split_modules or (isinstance(module, torch.nn.Embedding) and not self.model.config.tie_word_embeddings):
+            if module.__class__.__name__ in self.model._no_split_modules or (
+                isinstance(module, torch.nn.Embedding) and not self.model.config.tie_word_embeddings
+            ):
                 fully_shard(module, **kwargs)
         fully_shard(self.model, **kwargs) 
 
@@ -102,13 +104,13 @@ class Worker:
         self.offload_model_to_cpu()
 
     def offload_model_to_cpu(self):
-        if not self.config.offload_model:
+        if not getattr(self.config, "offload_model", False):
             return
         for param in self.model.parameters():
             param.data = param.data.to("cpu", non_blocking=True)
     
     def load_model_to_gpu(self):
-        if not self.config.offload_model:
+        if not getattr(self.config, "offload_model", False):
             return
         for param in self.model.parameters():
             param.data = param.data.to(

@@ -74,7 +74,8 @@ class Actor(Worker):
                 dtype="bfloat16",
                 tp_size=self.rollout_device_mesh["tp"].size(),
                 mem_fraction_static=self.config.rollout.gpu_memory_utilization,
-                enable_memory_saver=True
+                enable_memory_saver=True,
+                port=30000 + dist.get_rank()
             )
         
             self.train_sampling_params = OmegaConf.to_container(

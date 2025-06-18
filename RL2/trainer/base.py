@@ -1,5 +1,4 @@
 from omegaconf import OmegaConf
-import os
 from torch.utils.data import RandomSampler, DistributedSampler, DataLoader
 import torch.distributed as dist
 import wandb
