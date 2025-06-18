@@ -41,7 +41,7 @@ class SFTTrainer(Trainer):
 
         metrics = defaultdict(list)
         for minibatch in self.actor.tqdm(minibatches):
-            logps = self.actor.forward(minibatch)
+            logps, _ = self.actor.forward(minibatch)
             logps = sequence_all_reduce(
                 minibatch,
                 logps,

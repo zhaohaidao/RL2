@@ -16,6 +16,10 @@ from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_kl_term, compute_baseline
 from RL2.utils.ring_attn import update_params_of_ring_attn
+from RL2.utils.cut_cross_entropy import (
+    substitute_lm_head_forward,
+    update_params_of_cce
+)
 from RL2.utils.comm import gather_and_concat_list, sum_across_processes
 from RL2.utils.timing import time_logger
 
@@ -30,6 +34,7 @@ class Actor(Worker):
             torch_dtype=torch.float32 if train else torch.bfloat16,
             attn_implementation="flash_attention_2"
         )
+        substitute_lm_head_forward(self.model)
         
         self.prepare_model_optimizer()
         if hasattr(config, "rollout") and train:
@@ -209,36 +214,21 @@ class Actor(Worker):
                 self.rollout_device_mesh["dp"]
             )
 
-    def forward(self, minibatch, compute_entropy=False) -> torch.Tensor:
+    def forward(self, minibatch):
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
-
-        logits = self.model(
-            input_ids=minibatch["states"],
-            position_ids=minibatch["position_ids"],
-            use_cache=False
-        ).logits / (
+        update_params_of_cce(
+            minibatch["actions"], minibatch["action_mask"],
             self.config.rollout.train_sampling_params.temperature
             if hasattr(self.config, "rollout") else 1.0
         )
 
-        # Non-action logps are masked to zero so that they are excluded 
-        # from computations. For example, in `algs.compute_kl_term`, 
-        # because the `logps` and `ref_logps` of non-action tokens are both 
-        # zero, their KL terms are also zero, regardless of the estimator.
-        logps = torch.gather(
-            logits.log_softmax(-1),
-            dim=-1,
-            index=minibatch["actions"].unsqueeze(-1)
-        ).squeeze(-1) * minibatch["action_mask"]
-
-        if compute_entropy:
-            probs = logits.softmax(-1)
-            entropy = logits.logsumexp(-1) - (probs * logits).sum(-1)
-            return logps, entropy * minibatch["action_mask"]
-        else:
-            return logps
+        return self.model(
+            input_ids=minibatch["states"],
+            position_ids=minibatch["position_ids"],
+            use_cache=False
+        ).logits
 
     @time_logger("compute_logps")
     @torch.no_grad()
@@ -252,7 +242,7 @@ class Actor(Worker):
         for minibatch in self.tqdm(
             minibatches, desc=f"Compute {prefix} logps"
         ):
-            minibatch[f"{prefix}_logps"] = self.forward(minibatch)
+            minibatch[f"{prefix}_logps"], _ = self.forward(minibatch)
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
@@ -279,7 +269,7 @@ class Actor(Worker):
             
             for minibatch in batch:
 
-                logps, entropy = self.forward(minibatch, True)
+                logps, entropy = self.forward(minibatch)
                 ratio = (logps - minibatch["old_logps"]).exp()
                 clipped_ratio = torch.clamp(
                     ratio,

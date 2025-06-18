@@ -9,3 +9,4 @@ liger_kernel
 sglang[all]==0.4.6.post3
 wandb
 flash-attn
+triton
