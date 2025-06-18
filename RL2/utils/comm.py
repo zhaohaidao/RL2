@@ -17,13 +17,23 @@ def sum_across_processes(value):
     dist.all_reduce(value, op=dist.ReduceOp.SUM)
     return value.to("cpu").item()
 
-def gather_and_concat_list(lst, device_mesh):
+def gather_and_concat_list(lst, device_mesh=None):
 
-    lists = [None for _ in range(device_mesh.size())]
+    if device_mesh is None:
+        world_size = dist.get_world_size()
+        is_dst = dist.get_rank() == 0
+        group = None
+    else:
+        world_size = device_mesh.size()
+        is_dst = device_mesh.get_local_rank() == 0
+        group = device_mesh.get_group()
+    
+    lists = [None] * world_size if is_dst else None
     dist.gather_object(
         lst,
-        lists if device_mesh.get_local_rank() == 0 else None,
-        group=device_mesh.get_group(),
-        group_dst=0
+        lists,
+        dst=0,
+        group=group
     )
-    return sum(lists, []) if device_mesh.get_local_rank() == 0 else None
+
+    return sum(lists, []) if is_dst else None

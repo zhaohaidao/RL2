@@ -18,17 +18,31 @@ from RL2.utils.comm import gather_and_concat_list
 
 class Worker:
 
-    def __init__(self, config, device_mesh, train: bool):
+    def __init__(self, config, train: bool):
 
         self.config = config
-        self.device_mesh = device_mesh
         self.train = train
+
+        if config.fsdp_size > 1:
+            self.device_mesh = dist.device_mesh.init_device_mesh(
+                "cuda",
+                mesh_dim_names=("ddp", "fsdp"),
+                mesh_shape=(
+                    dist.get_world_size() // config.fsdp_size,
+                    config.fsdp_size
+                )
+            )
+        else:
+            self.device_mesh = dist.device_mesh.init_device_mesh(
+                "cuda",
+                mesh_shape=(dist.get_world_size(),)
+            )
 
         self.sp_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("dp", "sp"),
             mesh_shape=(
-                device_mesh.size() // config.sp_size,
+                dist.get_world_size() // config.sp_size,
                 config.sp_size
             )
         )
@@ -80,7 +94,7 @@ class Worker:
             if self.config.optimizer_dir is not None:
                 self.optimizer.load_state_dict(
                     torch.load(
-                        f"{self.config.optimizer_dir}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+                        f"{self.config.optimizer_dir}/optimizer_rank{dist.get_rank()}.pt"
                     )
                 )
                 self.offload_optimizer_to_cpu()
@@ -130,7 +144,7 @@ class Worker:
         if pack_minibatches:
             # Pack minibatches into multiple batches, where each batch is 
             # used for an update and contains multiple minibatches.
-            if self.device_mesh.get_rank() == 0:
+            if dist.get_rank() == 0:
                 n_trajectories_per_update = len(data_list) // self.config.update_per_rollout
                 return [
                     self.scatter_and_pack_data_list(
@@ -145,7 +159,7 @@ class Worker:
                     for _ in range(self.config.update_per_rollout)
                 ]
 
-        if self.device_mesh.get_rank() == 0:
+        if dist.get_rank() == 0:
 
             # We use ZigZag Ring Attention to partition sequences, where 
             # the length of each sequence needs to be multiple of 2 * 
@@ -205,7 +219,7 @@ class Worker:
                 for _ in range(self.sp_device_mesh["sp"].size())
             ]
         else:
-            data_lists = [None for _ in range(self.device_mesh.size())]
+            data_lists = [None for _ in range(dist.get_world_size())]
         
         # Scatter data to all processes from rank 0.
         data_list = [None]
@@ -291,7 +305,7 @@ class Worker:
             shuffled_data_list = gather_and_concat_list(
                 data_list, self.sp_device_mesh["dp"]
             )
-            if self.device_mesh.get_rank() == 0:
+            if dist.get_rank() == 0:
                 data_list = len(shuffled_data_list) * [None]
                 for idx, ex in zip(self.shuffle_indices, shuffled_data_list):
                     data_list[idx] = ex
@@ -316,20 +330,18 @@ class Worker:
             *args,
             position=1,
             leave=False,
-            disable=(self.device_mesh.get_rank() != 0),
+            disable=(dist.get_rank() != 0),
             **kwargs
         )
 
     def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
 
         metrics = {
-            k: gather_and_concat_list(
-                v, device_mesh if device_mesh is not None else self.device_mesh
-            )
+            k: gather_and_concat_list(v, device_mesh)
             for k, v in metrics.items()
         }
         
-        if self.device_mesh.get_rank() == 0:
+        if dist.get_rank() == 0:
             metrics = {
                 k: torch.Tensor(v).mean().item()
                 for k, v in metrics.items()
@@ -351,7 +363,7 @@ class Worker:
         state_dict = get_model_state_dict(
             self.model, options=options
         )
-        if self.device_mesh.get_rank() == 0:
+        if dist.get_rank() == 0:
 
             self.tokenizer.save_pretrained(path)
 
@@ -376,5 +388,5 @@ class Worker:
         if self.config.save_optimizer:
             torch.save(
                 self.optimizer.state_dict(),
-                f"{path}/optimizer_rank{self.device_mesh.get_rank()}.pt"
+                f"{path}/optimizer_rank{dist.get_rank()}.pt"
             )

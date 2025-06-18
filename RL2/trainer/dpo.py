@@ -25,8 +25,8 @@ class DPOTrainer(Trainer):
             dataset, self.config.data.batch_size, True
         )
 
-        self.actor = Actor(config.actor, self.device_mesh, True)
-        self.ref_actor = Actor(config.actor, self.device_mesh, False)
+        self.actor = Actor(config.actor, True)
+        self.ref_actor = Actor(config.actor, False)
         
         num_training_steps = self.config.trainer.n_epochs * len(self.dataloader)
         num_warmup_steps = int(self.config.actor.warmup_ratio * num_training_steps)
@@ -51,7 +51,7 @@ class DPOTrainer(Trainer):
             ).view(-1, 2).T
             reward_margins = chosen_rewards - rejected_rewards
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
-            (loss * self.actor.device_mesh.size()).backward()
+            (loss * dist.get_world_size()).backward()
 
             metrics["rewards/chosen"].extend(chosen_rewards.tolist())
             metrics["rewards/rejected"].extend(rejected_rewards.tolist())
@@ -75,7 +75,7 @@ class DPOTrainer(Trainer):
             for data_list in tqdm(
                 self.dataloader,
                 desc=f"Epoch {epoch + 1}",
-                disable=(self.device_mesh.get_rank() != 0)
+                disable=(dist.get_rank() != 0)
             ):
                 data_list = self.ref_actor.compute_logps(data_list, step)
                 self.update_actor(data_list, step)

@@ -1,5 +1,6 @@
 from collections import defaultdict
 import torch
+import torch.distributed as dist
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
 from RL2.utils.ring_attn import update_params_of_ring_attn
@@ -9,8 +10,8 @@ from RL2.utils.timing import time_logger
 
 class Critic(Worker):
 
-    def __init__(self, config, device_mesh):
-        super().__init__(config, device_mesh, True)
+    def __init__(self, config):
+        super().__init__(config, True)
 
         self.model = AutoModelForTokenClassification.from_pretrained(
             config.model_name,
@@ -74,11 +75,11 @@ class Critic(Worker):
                 loss = torch.max(mse, clipped_mse).sum() / total_actions
                 clip_ratio = (mse < clipped_mse).sum() / total_actions
                 
-                (loss * self.device_mesh.size()).backward()
+                (loss * dist.get_world_size()).backward()
 
                 tbar.update()
-                metrics["critic/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
-                metrics["critic/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
+                metrics["critic/loss"].append(dist.get_world_size() * len(batch) * loss.item())
+                metrics["critic/clip_ratio"].append(dist.get_world_size() * len(batch) * clip_ratio.item())
 
             grad_norm = self.optimizer_step()
             metrics["critic/grad_norm"].append(grad_norm)

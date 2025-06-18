@@ -10,23 +10,8 @@ class Trainer:
         
         OmegaConf.resolve(config)
         self.config = config
-        world_size = int(os.environ["WORLD_SIZE"])
-        if config.trainer.fsdp_size > 0:
-            self.device_mesh = dist.device_mesh.init_device_mesh(
-                "cuda",
-                mesh_dim_names=("ddp", "fsdp"),
-                mesh_shape=(
-                    world_size // config.trainer.fsdp_size,
-                    config.trainer.fsdp_size
-                )
-            )
-        else:
-            self.device_mesh = dist.device_mesh.init_device_mesh(
-                "cuda",
-                mesh_shape=(world_size,)
-            )
 
-        if self.device_mesh.get_rank() == 0:
+        if dist.get_rank() == 0:
             print(OmegaConf.to_yaml(config))
             if not config.trainer.disable_wandb:
                 wandb.init(

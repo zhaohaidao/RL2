@@ -8,6 +8,7 @@ actor:
   model_name: null
   ref_model_name: ${actor.model_name}
   optimizer_dir: null
+  fsdp_size: 0
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: null
@@ -51,6 +52,7 @@ actor:
 critic:
   model_name: ${actor.model_name}
   optimizer_dir: null
+  fsdp_size: ${actor.fsdp_size}
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: ${actor.max_length_per_device}

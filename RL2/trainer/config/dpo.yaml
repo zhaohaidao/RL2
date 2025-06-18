@@ -7,6 +7,7 @@ actor:
   model_name: null
   ref_model_name: ${actor.model_name}
   optimizer_dir: null
+  fsdp_size: 0
   gradient_checkpointing: true
   sp_size: 1
   max_length_per_device: null
@@ -29,7 +30,6 @@ actor:
 trainer:
   project: null
   experiment_name: null
-  fsdp_size: 0
   n_epochs: 1
   alpha: 0.0
   beta: 0.1

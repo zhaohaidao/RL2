@@ -22,8 +22,8 @@ from RL2.utils.timing import time_logger
 
 class Actor(Worker):
 
-    def __init__(self, config, device_mesh, train: bool):
-        super().__init__(config, device_mesh, train)
+    def __init__(self, config, train: bool):
+        super().__init__(config, train)
         
         self.model = AutoLigerKernelForCausalLM.from_pretrained(
             config.model_name if train else config.ref_model_name,
@@ -50,7 +50,7 @@ class Actor(Worker):
             "cpu",
             mesh_dim_names=("dp", "tp"),
             mesh_shape=(
-                self.device_mesh.size() // self.config.rollout.tp_size,
+                dist.get_world_size() // self.config.rollout.tp_size,
                 self.config.rollout.tp_size
             )
         )
@@ -145,7 +145,7 @@ class Actor(Worker):
                 tqdm.gather(
                     *(self.single_rollout(ex, train) for ex in data_list),
                     desc="Rollout", position=1, leave=False,
-                    disable=(self.device_mesh.get_rank() != 0)
+                    disable=(dist.get_rank() != 0)
                 )
             )
             if train:
@@ -153,7 +153,7 @@ class Actor(Worker):
                 self.llm.release_memory_occupation()
 
             data_list, all_messages, metrics = map(list, zip(*outputs))
-            if self.device_mesh.get_rank() == 0:
+            if dist.get_rank() == 0:
                 tqdm.write(json.dumps(all_messages[0], indent=4))
             metrics = {
                 k: sum([metric[k] for metric in metrics], [])
@@ -300,16 +300,16 @@ class Actor(Worker):
                     ).sum() / total_actions
                     loss = loss + self.config.kl.coef * kl_loss
 
-                (loss * self.device_mesh.size()).backward() 
+                (loss * dist.get_world_size()).backward() 
 
                 tbar.update()
                 # The losses on each device (resp. of minibatches within a 
                 # batch) are accumulated but the value will be averaged in 
                 # `Worker.log`. Therefore we multiply the world size (resp. 
                 # bsz) here to get the correct value.
-                metrics["actor/entropy"].append(self.device_mesh.size() * len(batch) * entropy.item())
-                metrics["actor/loss"].append(self.device_mesh.size() * len(batch) * loss.item())
-                metrics["actor/clip_ratio"].append(self.device_mesh.size() * len(batch) * clip_ratio.item())
+                metrics["actor/entropy"].append(dist.get_world_size() * len(batch) * entropy.item())
+                metrics["actor/loss"].append(dist.get_world_size() * len(batch) * loss.item())
+                metrics["actor/clip_ratio"].append(dist.get_world_size() * len(batch) * clip_ratio.item())
 
             grad_norm = self.optimizer_step()
             metrics["actor/grad_norm"].append(grad_norm)

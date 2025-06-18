@@ -24,7 +24,7 @@ class SFTTrainer(Trainer):
             dataset, self.config.data.batch_size, True
         )
 
-        self.actor = Actor(config.actor, self.device_mesh, True)
+        self.actor = Actor(config.actor, True)
 
         num_training_steps = self.config.trainer.n_epochs * len(self.dataloader)
         num_warmup_steps = int(self.config.actor.warmup_ratio * num_training_steps)
@@ -49,7 +49,7 @@ class SFTTrainer(Trainer):
                 "mean"
             )
             loss = - logps.sum() / self.config.data.batch_size
-            (loss * self.device_mesh.size()).backward()
+            (loss * dist.get_world_size()).backward()
             metrics["loss"].append(
                 self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
             )
@@ -68,7 +68,7 @@ class SFTTrainer(Trainer):
             for data_list in tqdm(
                 self.dataloader,
                 desc=f"Epoch {epoch + 1}",
-                disable=(self.device_mesh.get_rank() != 0)
+                disable=(dist.get_rank() != 0)
             ):
                 self.update_actor(data_list, step)
                 step += 1

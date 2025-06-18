@@ -21,11 +21,11 @@ class PPOTrainer(Trainer):
 
         if config.actor.kl.coef > 0:
             self.ref_actor = Actor(
-                config.actor, self.device_mesh, False
+                config.actor, False
             )
         if config.adv.estimator == "gae":
-            self.critic = Critic(config.critic, self.device_mesh)
-        self.actor = Actor(config.actor, self.device_mesh, True)
+            self.critic = Critic(config.critic)
+        self.actor = Actor(config.actor, True)
 
         self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)
         _, self.test_dataloader = self.prepare_sampler_dataloader(False)
@@ -93,7 +93,7 @@ class PPOTrainer(Trainer):
             for data_list in tqdm(
                 self.train_dataloader,
                 desc=f"Epoch {epoch + 1}",
-                disable=(self.device_mesh.get_rank() != 0)
+                disable=(dist.get_rank() != 0)
             ):
 
                 data_list = self.actor.rollout(data_list, True, step)
@@ -101,13 +101,13 @@ class PPOTrainer(Trainer):
                 data_list = self.actor.compute_logps(data_list, step)
                 if self.config.actor.kl.coef > 0:
                     data_list = self.ref_actor.compute_logps(data_list, step)
-                    if self.device_mesh.get_rank() == 0:
+                    if dist.get_rank() == 0:
                         self.compute_kl_term(data_list, step)
 
                 if self.config.adv.estimator == "gae":
                     data_list = self.critic.compute_values(data_list, step)
 
-                if self.device_mesh.get_rank() == 0:
+                if dist.get_rank() == 0:
                     data_list = self.compute_advantages(data_list, step)
 
                 if self.config.adv.estimator == "gae":
