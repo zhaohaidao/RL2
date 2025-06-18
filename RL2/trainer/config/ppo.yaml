@@ -24,21 +24,6 @@ actor:
   save_freq: null
   save_optimizer: true
 
-  rollout:
-    tp_size: 1
-    gpu_memory_utilization: 0.5
-    train_sampling_params:
-      temperature: 1.0
-      max_new_tokens: null
-    test_sampling_params:
-      temperature: 0.0
-      max_new_tokens: ${actor.rollout.train_sampling_params.max_new_tokens}
-    max_turns: 1
-    env_path: null
-    group_filtering:
-      lower: 0.0
-      upper: 1.0
-
   kl:
     coef: 0.0
     type: null # `reward` or `loss`
@@ -48,6 +33,22 @@ actor:
 
   entropy:
     coef: 1e-4
+
+rollout:
+  model_name: ${actor.model_name}
+  tp_size: 1
+  gpu_memory_utilization: 0.5
+  train_sampling_params:
+    temperature: 1.0
+    max_new_tokens: null
+  test_sampling_params:
+    temperature: 0.0
+    max_new_tokens: ${rollout.train_sampling_params.max_new_tokens}
+  max_turns: 1
+  env_path: null
+  group_filtering:
+    lower: 0.0
+    upper: 1.0
 
 critic:
   model_name: ${actor.model_name}
