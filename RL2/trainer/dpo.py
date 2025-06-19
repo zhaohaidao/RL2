@@ -26,7 +26,7 @@ class DPOTrainer(Trainer):
         )
 
         self.actor = Actor(config.actor, True)
-        self.ref_actor = Actor(config.actor, False)
+        self.ref_actor = Actor(config.ref_actor, False)
         
         num_training_steps = self.config.trainer.n_epochs * len(self.dataloader)
         num_warmup_steps = int(self.config.actor.warmup_ratio * num_training_steps)

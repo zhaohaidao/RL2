@@ -20,7 +20,7 @@ class PPOTrainer(Trainer):
         super().__init__(config)
 
         if config.actor.kl.coef > 0:
-            self.ref_actor = Actor(config.actor, False)
+            self.ref_actor = Actor(config.ref_actor, False)
         if config.adv.estimator == "gae":
             self.critic = Critic(config.critic)
         self.actor = Actor(config.actor, True)

@@ -5,7 +5,6 @@ data:
 
 actor:
   model_name: null
-  ref_model_name: ${actor.model_name}
   optimizer_dir: null
   fsdp_size: 0
   sp_size: 1
@@ -26,6 +25,13 @@ actor:
     alpha: 16
     target_modules: all-linear
     dropout: 0
+
+ref_actor:
+  model_name: ${actor.model_name}
+  fsdp_size: ${actor.fsdp_size}
+  sp_size: ${actor.sp_size}
+  max_length_per_device: ${actor.max_length_per_device}
+  offload_model: false
 
 trainer:
   project: null
