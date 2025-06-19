@@ -39,7 +39,7 @@ class SFTTrainer(Trainer):
 
         minibatches = self.actor.scatter_and_pack_data_list(data_list)
 
-        metrics = defaultdict(list)
+        losses = []
         for minibatch in self.actor.tqdm(minibatches):
             logps, _ = self.actor.forward(minibatch)
             logps = sequence_all_reduce(
@@ -50,15 +50,17 @@ class SFTTrainer(Trainer):
             )
             loss = - logps.sum() / self.config.data.batch_size
             (loss * dist.get_world_size()).backward()
-            metrics["loss"].append(
-                self.actor.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
-            )
+            losses.append(loss.item())
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
-        metrics["grad_norm"].append(grad_norm)
         self.actor.log(
-            metrics, step, self.actor.sp_device_mesh["dp"]
+            {"loss": losses}, step, False, self.actor.sp_device_mesh["dp"]
+        )
+        self.actor.log(
+            {"grad_norm": [grad_norm]},
+            step,
+            device_mesh=self.actor.sp_device_mesh["dp"]
         )
 
     def train(self):

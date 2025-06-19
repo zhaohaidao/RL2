@@ -56,6 +56,7 @@ class Critic(Worker):
             desc="Update critic"
         )
         metrics = defaultdict(list)
+        grad_norms = []
         for batch in batches:
 
             total_actions = sum_across_processes(
@@ -78,13 +79,14 @@ class Critic(Worker):
                 (loss * dist.get_world_size()).backward()
 
                 tbar.update()
-                metrics["critic/loss"].append(dist.get_world_size() * len(batch) * loss.item())
-                metrics["critic/clip_ratio"].append(dist.get_world_size() * len(batch) * clip_ratio.item())
+                metrics["critic/loss"].append(loss.item())
+                metrics["critic/clip_ratio"].append(clip_ratio.item())
 
             grad_norm = self.optimizer_step()
-            metrics["critic/grad_norm"].append(grad_norm)
+            grad_norms.append(grad_norm)
 
-        self.log(metrics, step)
+        self.log(metrics, step, False)
+        self.log({"critic/grad_norm": grad_norms}, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
 

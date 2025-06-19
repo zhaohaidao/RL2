@@ -342,7 +342,7 @@ class Worker:
             **kwargs
         )
 
-    def log(self, metrics: Dict[str, List], step: int, device_mesh=None):
+    def log(self, metrics, step, avg=True, device_mesh=None):
 
         metrics = {
             k: gather_and_concat_list(v, device_mesh)
@@ -350,9 +350,8 @@ class Worker:
         }
         
         if dist.get_rank() == 0:
-            # TODO: some metrics needed to be summed
             metrics = {
-                k: torch.Tensor(v).mean().item()
+                k: sum(v) / (len(v) if avg else 1.0)
                 for k, v in metrics.items()
             }
             tqdm.write(

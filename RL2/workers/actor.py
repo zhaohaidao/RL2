@@ -73,6 +73,7 @@ class Actor(Worker):
             desc="Update actor"
         )
         metrics = defaultdict(list)
+        grad_norms = []
         for batch in batches:
             
             total_actions = sum_across_processes(
@@ -106,17 +107,14 @@ class Actor(Worker):
                 (loss * dist.get_world_size()).backward() 
 
                 tbar.update()
-                # The losses on each device (resp. of minibatches within a 
-                # batch) are accumulated but the value will be averaged in 
-                # `Worker.log`. Therefore we multiply the world size (resp. 
-                # bsz) here to get the correct value.
-                metrics["actor/entropy"].append(dist.get_world_size() * len(batch) * entropy.item())
-                metrics["actor/loss"].append(dist.get_world_size() * len(batch) * loss.item())
-                metrics["actor/clip_ratio"].append(dist.get_world_size() * len(batch) * clip_ratio.item())
+                metrics["actor/entropy"].append(entropy.item())
+                metrics["actor/loss"].append(loss.item())
+                metrics["actor/clip_ratio"].append(clip_ratio.item())
 
             grad_norm = self.optimizer_step()
-            metrics["actor/grad_norm"].append(grad_norm)
+            grad_norms.append(grad_norm)
 
-        self.log(metrics, step)
+        self.log(metrics, step, False)
+        self.log({"actor/grad_norm": grad_norms}, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
