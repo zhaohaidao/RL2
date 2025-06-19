@@ -155,7 +155,7 @@ class Rollout(Worker):
                 data_list,
                 data_lists,
                 group=self.device_mesh["dp"].get_group(),
-                group_dst=0    
+                group_src=0    
             )
             data_list = data_list[0]
 

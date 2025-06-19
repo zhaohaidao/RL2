@@ -1,6 +1,7 @@
 from typing import List
 import os
 import math
+import uuid
 import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
@@ -203,8 +204,18 @@ class Worker:
                 n_minibatches += (multiple_of - n_minibatches % multiple_of)
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
+            if len(seq_len_list) < n_minibatches:
+                padding_trajectories = n_minibatches - len(seq_len_list)
+                trajectory_length = 2 * self.sp_device_mesh["sp"].size()
+                trajectory = {
+                    k: torch.zeros((trajectory_length), dtype=v.dtype)
+                    if isinstance(v, torch.Tensor) else str(uuid.uuid4())
+                    for k, v in data_list[0].items()
+                }
+                data_list.extend(padding_trajectories * [trajectory])
+                seq_len_list.extend(padding_trajectories * [trajectory_length])
+
             # Partition data into n_minibatches balanced minibatches.
-            # TODO: perhaps not enough data for partition
             partitions: List[List[int]] = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )

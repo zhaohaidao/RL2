@@ -41,7 +41,8 @@ class PPOTrainer(Trainer):
         return DataLoader(
             dataset,
             self.config.data.prompts_per_rollout
-            if train else len(dataset)
+            if train else len(dataset),
+            collate_fn=dataset.collate_fn
         )
     
     @time_logger("compute_kl_term")
