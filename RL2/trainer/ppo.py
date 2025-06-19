@@ -19,11 +19,11 @@ class PPOTrainer(Trainer):
     def __init__(self, config):
         super().__init__(config)
 
+        self.actor = Actor(config.actor, True)
         if config.actor.kl.coef > 0:
             self.ref_actor = Actor(config.ref_actor, False)
         if config.adv.estimator == "gae":
             self.critic = Critic(config.critic)
-        self.actor = Actor(config.actor, True)
         self.rollout = Rollout(config.rollout)
 
         self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)

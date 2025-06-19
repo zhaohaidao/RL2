@@ -41,6 +41,7 @@ class RMTrainer(Trainer):
         minibatches = self.critic.scatter_and_pack_data_list(data_list, pair=True)
 
         metrics = defaultdict(list)
+        losses = []
         for minibatch in self.critic.tqdm(minibatches):
             rewards = self.critic.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
@@ -50,16 +51,17 @@ class RMTrainer(Trainer):
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
             (loss * dist.get_world_size()).backward()
 
-            metrics["loss"].append(
-                self.critic.sp_device_mesh["dp"].size() * len(minibatches) * loss.item()
-            )
             metrics["accuray"].extend((reward_margins > 0).tolist())
+            losses.append(loss.item())
 
         grad_norm = self.critic.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
         self.critic.log(
-            metrics, step, self.critic.sp_device_mesh["dp"]
+            metrics, step, device_mesh=self.critic.sp_device_mesh["dp"]
+        )
+        self.critic.log(
+            {"loss": losses}, step, False, self.critic.sp_device_mesh["dp"]
         )
 
     def train(self):

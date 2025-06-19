@@ -58,7 +58,7 @@ class Critic(Worker):
         metrics = defaultdict(list)
         grad_norms = []
         for batch in batches:
-
+            # TODO: write as a function of Worker
             total_actions = sum_across_processes(
                 sum([minibatch["action_mask"].sum() for minibatch in batch])
             )

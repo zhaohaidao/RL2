@@ -37,27 +37,15 @@ class Rollout(Worker):
         # FSDP suffers inferior efficiency for 100B+ models. If your 
         # model is smaller than 100B, then you probably should not use
         # multi-node inference for the maximal throughput.
-        # TODO: perhaps not needed in new version
-        if "TORCHELASTIC_USE_AGENT_STORE" in os.environ.keys():
-            del os.environ["TORCHELASTIC_USE_AGENT_STORE"]
-        monkey_patch_torch_reductions()
-
-        cuda_visible_devices = self.device_mesh["tp"].size() * [None]
-        dist.all_gather_object(
-            cuda_visible_devices,
-            os.environ["LOCAL_RANK"],
-            self.device_mesh["tp"].get_group()
-        )
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
-
+        self.prepare_environment_variables()
         if self.device_mesh["tp"].get_local_rank() == 0:
+            
             self.prepare_environment()
             self.tokenizer = AutoTokenizer.from_pretrained(
                 config.model_name
             )
 
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-
             self.llm = Engine(
                 model_path=config.model_name,
                 dtype="bfloat16",
@@ -75,6 +63,19 @@ class Rollout(Worker):
             )
 
         dist.barrier()
+
+    def prepare_environment_variables(self):
+
+        if "TORCHELASTIC_USE_AGENT_STORE" in os.environ.keys():
+            del os.environ["TORCHELASTIC_USE_AGENT_STORE"]
+        monkey_patch_torch_reductions()
+        cuda_visible_devices = self.device_mesh["tp"].size() * [None]
+        dist.all_gather_object(
+            cuda_visible_devices,
+            os.environ["LOCAL_RANK"],
+            self.device_mesh["tp"].get_group()
+        )
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
     def prepare_environment(self):
 
@@ -135,6 +136,7 @@ class Rollout(Worker):
 
     @time_logger("rollout")
     def __call__(self, data_list, train: bool, step: int):
+        # TODO: distribute data
 
         if self.device_mesh["tp"].get_local_rank() == 0:
 
@@ -189,8 +191,7 @@ class Rollout(Worker):
         # and guarantees the load balancing across all model computations.
         if self.device_mesh["tp"].get_local_rank() == 0:
             return gather_and_concat_list(
-                data_list,
-                self.device_mesh["dp"]
+                data_list, self.device_mesh["dp"]
             )
         
     def update(self, actor):

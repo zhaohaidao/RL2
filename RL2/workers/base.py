@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 import os
 import math
 import torch
@@ -23,7 +23,7 @@ class Worker:
         self.config = config
         self.train = train
 
-        if config.fsdp_size > 1:
+        if config.fsdp_size > 0:
             self.device_mesh = dist.device_mesh.init_device_mesh(
                 "cuda",
                 mesh_dim_names=("ddp", "fsdp"),
@@ -204,6 +204,7 @@ class Worker:
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             # Partition data into n_minibatches balanced minibatches.
+            # TODO: perhaps not enough data for partition
             partitions: List[List[int]] = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )

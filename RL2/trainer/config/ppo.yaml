@@ -12,8 +12,8 @@ actor:
   gradient_checkpointing: true
   max_length_per_device: null
   temperature: ${rollout.train_sampling_params.temperature}
-  clip: 0.2
   update_per_rollout: 1
+  clip: 0.2
   lr: 1e-6
   weight_decay: 1e-2
   max_grad_norm: 1.0
@@ -65,8 +65,8 @@ critic:
   gradient_checkpointing: ${actor.gradient_checkpointing}
   sp_size: ${actor.sp_size}
   max_length_per_device: ${actor.max_length_per_device}
-  clip: 0.5
   update_per_rollout: 12
+  clip: 0.5
   lr: 5e-6
   weight_decay: ${actor.weight_decay}
   max_grad_norm: ${actor.max_grad_norm}
