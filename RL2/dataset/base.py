@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import Dataset
 
 def load_dataset(data_path):
-    # TODO: support concatenating multiple datasets
 
     if "@" in data_path:
         split, data_path = data_path.split("@")

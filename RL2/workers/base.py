@@ -54,7 +54,7 @@ class Worker:
     def prepare_model_optimizer(self):
 
         if hasattr(self.config, "lora") and self.config.lora.rank > 0:
-            # TODO: support LoRA for RM and PPO
+            # TODO: support LoRA for RM
             self.model.enable_input_require_grads()
 
             lora_config = LoraConfig(
@@ -204,9 +204,6 @@ class Worker:
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             # Partition data into n_minibatches balanced minibatches.
-            # We cache the shuffle indices to resume data order in 
-            # `resume_and_gather_data_list`.
-            # TODO: perhaps not enough data to scatter
             partitions: List[List[int]] = get_seqlen_balanced_partitions(
                 seq_len_list, k_partitions=n_minibatches, equal_size=False
             )
@@ -215,6 +212,8 @@ class Worker:
                     sum([[2 * p, 2 * p + 1] for p in partition], [])
                     for partition in partitions
                 ]
+            # We cache the shuffle indices to resume data order in 
+            # `resume_and_gather_data_list`.
             self.shuffle_indices = sum(partitions, [])
             # The n-th list contains data for rank n.
             data_lists = [
@@ -363,7 +362,7 @@ class Worker:
             )
             wandb.log(metrics, step=step)
 
-    def save(self, step):
+    def save(self, step, rm=False):
 
         path = f"{self.config.save_dir}/step{step}"
         os.makedirs(path, exist_ok=True)

@@ -11,6 +11,7 @@ actor:
   sp_size: 1
   gradient_checkpointing: true
   max_length_per_device: null
+  temperature: ${rollout.train_sampling_params.temperature}
   clip: 0.2
   update_per_rollout: 1
   lr: 1e-6
@@ -54,6 +55,7 @@ ref_actor:
   fsdp_size: ${actor.fsdp_size}
   sp_size: ${actor.sp_size}
   max_length_per_device: ${actor.max_length_per_device}
+  temperature: ${rollout.train_sampling_params.temperature}
   offload_model: ${actor.offload_model}
 
 critic:

@@ -32,10 +32,8 @@ class Actor(Worker):
         )
         update_params_of_linear_cross_entropy(
             minibatch["actions"],
-            self.config.rollout.train_sampling_params.temperature
-            if hasattr(self.config, "rollout") else 1.0
+            getattr(self.config, "temperature", 1.0)
         )
-        # TODO: sometimes entropy is not needed
         logps, entropy = self.model(
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
