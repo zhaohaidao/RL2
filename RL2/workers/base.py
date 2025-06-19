@@ -382,13 +382,16 @@ class Worker:
             if hasattr(self.config, "lora") and self.config.lora.rank > 0:
                 model_to_save = self.model
             else:
-                # TODO: should save `SequenceClassification` model for RM
-                model_cls = getattr(
-                    transformers,
-                    self.model.__class__.__name__.removeprefix("FSDP")
-                )
+                model_cls_name = self.model.__class__.__name__.removeprefix("FSDP")
+                if rm:
+                    model_cls_name = model_cls_name.replace(
+                        "Token", "Sequence"
+                    )
+                model_cls = getattr(transformers, model_cls_name)
                 with torch.device("meta"):
-                    model_to_save = model_cls._from_config(self.model.config)
+                    model_to_save = model_cls._from_config(
+                        self.model.config
+                    )
             model_to_save.save_pretrained(
                 path, state_dict=state_dict
             )

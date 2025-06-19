@@ -75,9 +75,9 @@ class RMTrainer(Trainer):
                 step += 1
 
                 if self.critic.config.save_freq is not None and step % self.critic.config.save_freq == 0:
-                    self.critic.save(step)
+                    self.critic.save(step, True)
 
-        self.critic.save(step)
+        self.critic.save(step, True)
 
 
 @hydra.main(config_path="config", config_name="rm", version_base=None)
