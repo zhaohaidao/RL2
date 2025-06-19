@@ -31,9 +31,9 @@ torchrun \
     data.responses_per_prompt=8 \
     actor.model_name=Qwen/Qwen2.5-3B-Instruct \
     actor.max_length_per_device=8192 \
-    actor.rollout.max_turns=4 \
-    actor.rollout.train_sampling_params.max_new_tokens=512 \
-    actor.rollout.env_path=envs/searchr1.py \
+    rollout.max_turns=4 \
+    rollout.train_sampling_params.max_new_tokens=512 \
+    rollout.env_path=envs/searchr1.py \
     adv.estimator=reinforce \
     trainer.project=SearchR1 \
     trainer.experiment_name=qwen2.5-3b-inst_reinforce \

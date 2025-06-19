@@ -10,8 +10,8 @@ torchrun \
     actor.max_length_per_device=8192 \
     actor.freeze_steps=4 \
     actor.save_freq=32 \
-    actor.rollout.train_sampling_params.max_new_tokens=8192 \
-    actor.rollout.env_path=envs/orz.py \
+    rollout.train_sampling_params.max_new_tokens=8192 \
+    rollout.env_path=envs/orz.py \
     adv.estimator=gae \
     trainer.project=OpenReasonerZero \
     trainer.experiment_name=qwen2.5-7b-ppo \

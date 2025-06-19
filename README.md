@@ -64,7 +64,7 @@ If a reward model is used, it should be served outside of the training framework
 ### Tools
 
 RL2 supports multi-turn rollout with function calling.
-In this case, you should set `actor.rollout.max_turns > 1` and include function `interact` with the following format in the Python script including the reward function.
+In this case, you should set `rollout.max_turns > 1` and include function `interact` with the following format in the Python script including the reward function.
 You should parse the called functions in past messages and return new messages including the results.
 An empty list indicates no function is called.
 
