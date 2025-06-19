@@ -4,7 +4,6 @@ import torch.distributed as dist
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
 from RL2.utils.ring_attn import update_params_of_ring_attn
-from RL2.utils.comm import sum_across_processes
 from RL2.utils.timing import time_logger
 
 
@@ -58,11 +57,8 @@ class Critic(Worker):
         metrics = defaultdict(list)
         grad_norms = []
         for batch in batches:
-            # TODO: write as a function of Worker
-            total_actions = sum_across_processes(
-                sum([minibatch["action_mask"].sum() for minibatch in batch])
-            )
 
+            total_actions = self.count_total_actions(batch)
             for minibatch in batch:
 
                 values = self.forward(minibatch)

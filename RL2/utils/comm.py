@@ -11,12 +11,6 @@ def initialize_global_process_group(timeout_second=36000):
     if dist.is_initialized():
         torch.cuda.set_device(local_rank)
 
-def sum_across_processes(value):
-
-    value = torch.Tensor([value]).to(torch.cuda.current_device())
-    dist.all_reduce(value, op=dist.ReduceOp.SUM)
-    return value.to("cpu").item()
-
 def gather_and_concat_list(lst, device_mesh=None):
 
     if device_mesh is None:

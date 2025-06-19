@@ -9,7 +9,6 @@ from RL2.utils.cut_cross_entropy import (
     substitute_lm_head_forward,
     update_params_of_linear_cross_entropy
 )
-from RL2.utils.comm import sum_across_processes
 from RL2.utils.timing import time_logger
 
 
@@ -76,10 +75,7 @@ class Actor(Worker):
         grad_norms = []
         for batch in batches:
             
-            total_actions = sum_across_processes(
-                sum([minibatch["action_mask"].sum() for minibatch in batch])
-            )
-            
+            total_actions = self.count_total_actions(batch)
             for minibatch in batch:
 
                 logps, entropy = self.forward(minibatch)

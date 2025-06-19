@@ -319,6 +319,17 @@ class Worker:
                 for idx, ex in zip(self.shuffle_indices, shuffled_data_list):
                     data_list[idx] = ex
                 return data_list
+            
+    def count_total_actions(self, minibatches):
+
+        total_actions = sum(
+            [minibatch["action_mask"].sum() for minibatch in minibatches]
+        )
+        total_actions = torch.Tensor(
+            [total_actions]
+        ).to(torch.cuda.current_device())
+        dist.all_reduce(total_actions, op=dist.ReduceOp.SUM)
+        return total_actions.to("cpu").item()
     
     def optimizer_step(self):
 

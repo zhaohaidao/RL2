@@ -1,12 +1,10 @@
 import hydra
-from collections import defaultdict
 import torch.distributed as dist
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import SFTDataset
 from RL2.workers import Actor
-from RL2.algs import sequence_all_reduce
 from RL2.utils.comm import initialize_global_process_group
 from RL2.utils.timing import time_logger
 
@@ -39,16 +37,11 @@ class SFTTrainer(Trainer):
 
         minibatches = self.actor.scatter_and_pack_data_list(data_list)
 
+        total_actions = self.actor.count_total_actions(minibatches)
         losses = []
         for minibatch in self.actor.tqdm(minibatches):
             logps, _ = self.actor.forward(minibatch)
-            logps = sequence_all_reduce(
-                minibatch,
-                logps,
-                self.actor.sp_device_mesh["sp"],
-                "mean"
-            )
-            loss = - logps.sum() / self.config.data.batch_size
+            loss = - logps.sum() / total_actions
             (loss * dist.get_world_size()).backward()
             losses.append(loss.item())
 
