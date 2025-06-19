@@ -1,4 +1,5 @@
 import hydra
+from torch.utils.data import DataLoader
 import torch.distributed as dist
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 from tqdm import tqdm
@@ -18,8 +19,10 @@ class SFTTrainer(Trainer):
         dataset = SFTDataset(
             config.data.path, tokenizer, config.data.max_length
         )
-        _, self.dataloader = self.prepare_sampler_dataloader(
-            dataset, self.config.data.batch_size, True
+        self.dataloader = DataLoader(
+            dataset,
+            self.config.data.batch_size,
+            collate_fn=dataset.collate_fn
         )
 
         self.actor = Actor(config.actor, True)

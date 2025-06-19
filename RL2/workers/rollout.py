@@ -1,5 +1,6 @@
 from omegaconf import OmegaConf
 import os
+import math
 import json
 import asyncio
 import importlib
@@ -136,9 +137,27 @@ class Rollout(Worker):
 
     @time_logger("rollout")
     def __call__(self, data_list, train: bool, step: int):
-        # TODO: distribute data
 
         if self.device_mesh["tp"].get_local_rank() == 0:
+
+            if dist.get_rank() == 0:
+                data_per_dp = math.ceil(
+                    len(data_list) / self.device_mesh["dp"].size()
+                )
+                data_lists = [
+                    data_list[rank * data_per_dp:(rank + 1) * data_per_dp]
+                    for rank in range(self.device_mesh["dp"].size())
+                ]
+            else:
+                data_lists = [None for _ in range(self.device_mesh["dp"].size())]
+            data_list = [None]
+            dist.scatter_object_list(
+                data_list,
+                data_lists,
+                group=self.device_mesh["dp"].get_group(),
+                group_dst=0    
+            )
+            data_list = data_list[0]
 
             loop = asyncio.get_event_loop()
             outputs = loop.run_until_complete(

@@ -3,7 +3,7 @@ import torch
 import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
 
-def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
+def sequence_all_reduce(batch, values, device_mesh):
     # When using sequence parallelism, tokens are distributed 
     # across multiple devices, while it may require the avg ( 
     # resp. sum) of logps of all tokens to compute the loss in
@@ -27,22 +27,7 @@ def sequence_all_reduce(batch, values, device_mesh, operation="sum"):
     # computation graph of the corresponding device.
     # All SP ranks will share identical loss, while they will 
     # perform backpropagation on their respective tokens.
-    values = values + partial_values - partial_values.detach()
-
-    if operation == "mean":
-        actions = torch.stack([
-            batch["action_mask"][:, start_idx:end_idx].sum()
-            for start_idx, end_idx
-            in zip(cu_seqlens[:-1], cu_seqlens[1:])
-        ])
-        dist.all_reduce(
-            actions,
-            op=dist.ReduceOp.SUM,
-            group=device_mesh.get_group()
-        )
-        values = values / (actions + torch.finfo(values.dtype).eps)
-
-    return values
+    return values + partial_values - partial_values.detach()
 
 def compute_kl_term(
     logps: torch.Tensor,

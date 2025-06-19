@@ -1,4 +1,5 @@
 import hydra
+from torch.utils.data import DataLoader
 import torch.distributed as dist
 from tqdm import tqdm
 import wandb
@@ -26,24 +27,21 @@ class PPOTrainer(Trainer):
             self.critic = Critic(config.critic)
         self.rollout = Rollout(config.rollout)
 
-        self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)
-        _, self.test_dataloader = self.prepare_sampler_dataloader(False)
+        self.train_dataloader = self.prepare_dataloader(True)
+        self.test_dataloader = self.prepare_dataloader(False)
 
-    def prepare_sampler_dataloader(self, train: bool):
+    def prepare_dataloader(self, train: bool):
 
         dataset = RLDataset(
-            self.config.data.train_data_path if train else self.config.data.test_data_path,
+            self.config.data.train_data_path
+            if train else self.config.data.test_data_path,
             self.config.data.responses_per_prompt if train else 1
         )
 
-        return super().prepare_sampler_dataloader(
+        return DataLoader(
             dataset,
-            (
-                self.config.data.prompts_per_rollout
-                if train else len(dataset)
-            ) // self.rollout.device_mesh["dp"].size(),
-            train,
-            self.rollout.device_mesh["dp"]
+            self.config.data.prompts_per_rollout
+            if train else len(dataset)
         )
     
     @time_logger("compute_kl_term")
@@ -86,8 +84,6 @@ class PPOTrainer(Trainer):
             self.rollout(data_list, False, step)
     
         for epoch in range(self.config.trainer.n_epochs):
-            # TODO: resume training
-            self.sampler.set_epoch(epoch)
             for data_list in tqdm(
                 self.train_dataloader,
                 desc=f"Epoch {epoch + 1}",

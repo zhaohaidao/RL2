@@ -1,5 +1,6 @@
 import hydra
 from collections import defaultdict
+from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torch.distributed as dist
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
@@ -21,8 +22,10 @@ class DPOTrainer(Trainer):
         dataset = DPODataset(
             config.data.path, tokenizer, config.data.max_length
         )
-        _, self.dataloader = self.prepare_sampler_dataloader(
-            dataset, self.config.data.batch_size, True
+        self.dataloader = DataLoader(
+            dataset,
+            self.config.data.batch_size,
+            collate_fn=dataset.collate_fn
         )
 
         self.actor = Actor(config.actor, True)
