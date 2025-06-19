@@ -4,7 +4,7 @@ from tqdm import tqdm
 import wandb
 from RL2.trainer import Trainer
 from RL2.dataset import RLDataset
-from RL2.workers import Actor, Critic
+from RL2.workers import Actor, Rollout, Critic
 from RL2.algs import (
     compute_kl_term,
     compute_gae,
@@ -24,6 +24,7 @@ class PPOTrainer(Trainer):
         if config.adv.estimator == "gae":
             self.critic = Critic(config.critic)
         self.actor = Actor(config.actor, True)
+        self.rollout = Rollout(config.rollout)
 
         self.sampler, self.train_dataloader = self.prepare_sampler_dataloader(True)
         _, self.test_dataloader = self.prepare_sampler_dataloader(False)
@@ -40,9 +41,9 @@ class PPOTrainer(Trainer):
             (
                 self.config.data.prompts_per_rollout
                 if train else len(dataset)
-            ) // self.actor.rollout_device_mesh["dp"].size(),
+            ) // self.rollout.device_mesh["dp"].size(),
             train,
-            self.actor.rollout_device_mesh["dp"]
+            self.rollout.device_mesh["dp"]
         )
     
     @time_logger("compute_kl_term")
@@ -82,7 +83,7 @@ class PPOTrainer(Trainer):
 
         step = 0
         for data_list in self.test_dataloader:
-            self.actor.rollout(data_list, False, step)
+            self.rollout(data_list, False, step)
     
         for epoch in range(self.config.trainer.n_epochs):
             # TODO: resume training
@@ -93,7 +94,7 @@ class PPOTrainer(Trainer):
                 disable=(dist.get_rank() != 0)
             ):
 
-                data_list = self.actor.rollout(data_list, True, step)
+                data_list = self.rollout(data_list, True, step)
 
                 data_list = self.actor.compute_logps(data_list, step)
                 if self.config.actor.kl.coef > 0:
@@ -111,11 +112,12 @@ class PPOTrainer(Trainer):
                     self.critic.update(data_list, step)
 
                 self.actor.update(data_list, step)
+                self.rollout.update(self.actor)
 
                 step += 1
                 if step % self.config.trainer.test_freq == 0:
                     for data_list in self.test_dataloader:
-                        self.actor.rollout(data_list, False, step)
+                        self.rollout(data_list, False, step)
 
 
 @hydra.main(config_path="config", config_name="ppo", version_base=None)
