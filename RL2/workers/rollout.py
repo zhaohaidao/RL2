@@ -193,7 +193,7 @@ class Rollout(Worker):
                 self.device_mesh["dp"]
             )
         
-    def update_weight(self, actor):
+    def update(self, actor):
 
         torch.cuda.empty_cache()
         # or llm.resume_memory_occupation() may OOM

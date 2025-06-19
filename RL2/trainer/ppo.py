@@ -112,12 +112,12 @@ class PPOTrainer(Trainer):
                     self.critic.update(data_list, step)
 
                 self.actor.update(data_list, step)
-                self.rollout.update_weight(self.actor)
+                self.rollout.update(self.actor)
 
                 step += 1
                 if step % self.config.trainer.test_freq == 0:
                     for data_list in self.test_dataloader:
-                        self.actor.rollout(data_list, False, step)
+                        self.rollout(data_list, False, step)
 
 
 @hydra.main(config_path="config", config_name="ppo", version_base=None)
