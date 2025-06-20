@@ -99,7 +99,9 @@ class Rollout(Worker):
                 tokenize=False
             )
             response = await self.llm.async_generate(
-                prompt, sampling_params=self.train_sampling_params if train else self.test_sampling_params
+                prompt,
+                sampling_params=self.train_sampling_params
+                if train else self.test_sampling_params
             )
             messages.append(
                 {"role": "assistant", "content": response["text"]}

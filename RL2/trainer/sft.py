@@ -50,7 +50,7 @@ class SFTTrainer(Trainer):
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
-        self.actor.log({"loss": losses}, step, False)
+        self.actor.log({"loss": losses}, step, op="sum")
         self.actor.log({"grad_norm": [grad_norm]}, step)
 
     def train(self):
@@ -68,7 +68,7 @@ class SFTTrainer(Trainer):
                 if self.actor.config.save_freq is not None and step % self.actor.config.save_freq == 0:
                     self.actor.save(step)
 
-        self.actor.save(step)
+        self.actor.save()
 
 
 @hydra.main(config_path="config", config_name="sft", version_base=None)

@@ -68,7 +68,7 @@ class DPOTrainer(Trainer):
         metrics["grad_norm"].append(grad_norm)
         self.actor.log(metrics, step)
         self.actor.log(
-            {"loss": losses}, step, False, self.actor.sp_device_mesh["dp"]
+            {"loss": losses}, step, op="sum", self.actor.sp_device_mesh["dp"]
         )
 
     def train(self):
@@ -87,7 +87,7 @@ class DPOTrainer(Trainer):
                 if self.actor.config.save_freq is not None and step % self.actor.config.save_freq == 0:
                     self.actor.save(step)
 
-        self.actor.save(step)
+        self.actor.save()
 
 
 @hydra.main(config_path="config", config_name="dpo", version_base=None)

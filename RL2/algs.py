@@ -8,16 +8,14 @@ def compute_logsumexp_by_chunk(logits, chunk_size=1024):
     logsumexp = []
     for start in range(0, logits.shape[1], chunk_size):
         logsumexp.append(
-            logits[:, start:start+chunk_size].logsumexp(-1)
+            logits[:, start:start + chunk_size].logsumexp(-1)
         )
     return torch.cat(logsumexp, -1)
 
 def sequence_all_reduce(batch, values, device_mesh):
     # When using sequence parallelism, tokens are distributed 
-    # across multiple devices, while it may require the avg ( 
-    # resp. sum) of logps of all tokens to compute the loss in
-    # SFT (resp. DPO).
-
+    # across multiple devices, while it may require the sum 
+    # of logps of all tokens to compute the loss in DPO.
     # We firstly compute the sum of logps, despite that the 
     # sum is not involved in the computation graph.
     cu_seqlens = batch["cu_seqlens"]

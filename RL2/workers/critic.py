@@ -81,7 +81,7 @@ class Critic(Worker):
             grad_norm = self.optimizer_step()
             grad_norms.append(grad_norm)
 
-        self.log(metrics, step, False)
+        self.log(metrics, step, op="sum")
         self.log({"critic/grad_norm": grad_norms}, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)

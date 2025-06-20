@@ -119,30 +119,6 @@ class Worker:
                 torch.cuda.current_device(), non_blocking=True
             )
 
-    def offload_optimizer_to_cpu(self):
-
-        if not self.config.offload_optimizer:
-            return
-        for param_group in self.optimizer.param_groups:
-            for param in param_group["params"]:
-                state = self.optimizer.state[param]
-                for key, value in state.items():
-                    if isinstance(value, torch.Tensor):
-                        state[key] = value.to("cpu", non_blocking=True)
-
-    def load_optimizer_to_gpu(self):
-
-        if not self.config.offload_optimizer or not self.optimizer.state:
-            return
-        for param_group in self.optimizer.param_groups:
-            for param in param_group["params"]:
-                state = self.optimizer.state[param]
-                for key, value in state.items():
-                    if isinstance(value, torch.Tensor):
-                        state[key] = value.to(
-                            torch.cuda.current_device(), non_blocking=True
-                        )
-
     def scatter_and_pack_data_list(self, data_list, pack_minibatches=False, pair=False):
 
         if pack_minibatches:
@@ -154,14 +130,13 @@ class Worker:
                 )
                 return [
                     self.scatter_and_pack_data_list(
-                        data_list[update * n_trajectories_per_update:(update + 1) * n_trajectories_per_update],
-                        False
+                        data_list[update * n_trajectories_per_update:(update + 1) * n_trajectories_per_update]
                     )
                     for update in range(self.config.update_per_rollout)
                 ]
             else:
                 return [
-                    self.scatter_and_pack_data_list(None, False)
+                    self.scatter_and_pack_data_list(None)
                     for _ in range(self.config.update_per_rollout)
                 ]
 
@@ -358,6 +333,30 @@ class Worker:
         self.offload_optimizer_to_cpu()
 
         return grad_norm.full_tensor().item()
+    
+    def offload_optimizer_to_cpu(self):
+
+        if not self.config.offload_optimizer:
+            return
+        for param_group in self.optimizer.param_groups:
+            for param in param_group["params"]:
+                state = self.optimizer.state[param]
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to("cpu", non_blocking=True)
+
+    def load_optimizer_to_gpu(self):
+
+        if not self.config.offload_optimizer or not self.optimizer.state:
+            return
+        for param_group in self.optimizer.param_groups:
+            for param in param_group["params"]:
+                state = self.optimizer.state[param]
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to(
+                            torch.cuda.current_device(), non_blocking=True
+                        )
 
     def tqdm(self, *args, **kwargs):
         return tqdm(
@@ -368,7 +367,7 @@ class Worker:
             **kwargs
         )
 
-    def log(self, metrics, step, avg=True, device_mesh=None):
+    def log(self, metrics, step, op="mean", device_mesh=None):
 
         metrics = {
             k: gather_and_concat_list(v, device_mesh)
@@ -376,20 +375,20 @@ class Worker:
         }
         
         if dist.get_rank() == 0:
-            metrics = {
-                k: sum(v) / (len(v) if avg else 1.0)
-                for k, v in metrics.items()
-            }
-            tqdm.write(
-                f"Step {step + 1}, " + ", ".join([
-                    f"{k}: {v:.3g}" for k, v in metrics.items()
-                ])
+            wandb.log(
+                {
+                    k: sum(v) / (len(v) if op == "mean" else 1.0)
+                    for k, v in metrics.items()
+                },
+                step=step
             )
-            wandb.log(metrics, step=step)
 
-    def save(self, step, rm=False):
+    def save(self, step=None, rm=False):
 
-        path = f"{self.config.save_dir}/step{step}"
+        path = self.config.save_dir
+        if step is not None:
+            path += f"/step{step}"
+            
         os.makedirs(path, exist_ok=True)
         options = StateDictOptions(
             full_state_dict=True, cpu_offload=True

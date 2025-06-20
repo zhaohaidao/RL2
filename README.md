@@ -48,7 +48,7 @@ The data should be in the following format
 ]
 ```
 
-### Reward
+### Rewards
 
 The reward function should be in the follwing format.
 Specify the path to the Python script including the function via `actor.rollout.env_path`.

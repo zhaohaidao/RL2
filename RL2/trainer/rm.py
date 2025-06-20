@@ -62,7 +62,7 @@ class RMTrainer(Trainer):
         metrics["grad_norm"].append(grad_norm)
         self.critic.log(metrics, step)
         self.critic.log(
-            {"loss": losses}, step, False, self.critic.sp_device_mesh["dp"]
+            {"loss": losses}, step, op="sum", self.critic.sp_device_mesh["dp"]
         )
 
     def train(self):
@@ -78,9 +78,9 @@ class RMTrainer(Trainer):
                 step += 1
 
                 if self.critic.config.save_freq is not None and step % self.critic.config.save_freq == 0:
-                    self.critic.save(step, True)
+                    self.critic.save(step, rm=True)
 
-        self.critic.save(step, True)
+        self.critic.save(rm=True)
 
 
 @hydra.main(config_path="config", config_name="rm", version_base=None)
