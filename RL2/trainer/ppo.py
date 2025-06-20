@@ -42,6 +42,7 @@ class PPOTrainer(Trainer):
             dataset,
             self.config.data.prompts_per_rollout
             if train else len(dataset),
+            shuffle=train,
             collate_fn=dataset.collate_fn
         )
     

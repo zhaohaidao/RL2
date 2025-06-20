@@ -25,6 +25,7 @@ class RMTrainer(Trainer):
         self.dataloader = DataLoader(
             dataset,
             self.config.data.batch_size,
+            shuffle=True,
             collate_fn=dataset.collate_fn
         )
 
