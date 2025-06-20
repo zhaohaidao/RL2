@@ -190,10 +190,13 @@ class Worker:
             if pair:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(dim=-1).flatten().tolist()
-            # TODO: When inference, perhaps use a larger `max_length_per_device`.
             n_minibatches = math.ceil(
                 sum(seq_len_list) / (
-                    self.config.max_length_per_device * self.sp_device_mesh["sp"].size()
+                    self.sp_device_mesh["sp"].size() * (
+                        self.config.max_length_per_device
+                        if torch.is_grad_enabled()
+                        else self.config.max_inference_length_per_device
+                    )
                 )
             )
             
