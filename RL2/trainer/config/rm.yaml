@@ -19,6 +19,12 @@ critic:
   save_freq: null
   save_optimizer: true
 
+  lora:
+    rank: 0
+    alpha: 16
+    target_modules: all-linear
+    dropout: 0
+
 trainer:
   project: null
   experiment_name: null

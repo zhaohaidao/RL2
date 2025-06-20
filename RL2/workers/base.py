@@ -55,11 +55,10 @@ class Worker:
     def prepare_model_optimizer(self):
 
         if hasattr(self.config, "lora") and self.config.lora.rank > 0:
-            # TODO: support LoRA for RM
             self.model.enable_input_require_grads()
 
             lora_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM,
+                task_type=getattr(TaskType, self.task_type),
                 r=self.config.lora.rank,
                 lora_alpha=self.config.lora.alpha,
                 target_modules=self.config.lora.target_modules,

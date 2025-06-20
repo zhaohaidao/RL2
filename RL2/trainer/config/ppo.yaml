@@ -78,6 +78,12 @@ critic:
   save_freq: ${actor.save_freq}
   save_optimizer: ${actor.save_optimizer}
 
+  lora:
+    rank: 0
+    alpha: 16
+    target_modules: all-linear
+    dropout: 0
+
 adv:
   estimator: null # `reinforce` or `gae`
   gamma: 1.0

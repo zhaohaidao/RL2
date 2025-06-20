@@ -9,6 +9,7 @@ from RL2.utils.timing import time_logger
 
 
 class Actor(Worker):
+    task_type = "CAUSAL_LM"
 
     def __init__(self, config, train: bool):
         super().__init__(config, train)

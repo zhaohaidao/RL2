@@ -8,6 +8,7 @@ from RL2.utils.timing import time_logger
 
 
 class Critic(Worker):
+    task_type = "TOKEN_CLS"
 
     def __init__(self, config):
         super().__init__(config, True)
