@@ -1,7 +1,6 @@
 from typing import List
 import os
 import math
-import uuid
 import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
@@ -189,7 +188,6 @@ class Worker:
                 trajectory_length = 2 * self.sp_device_mesh["sp"].size()
                 trajectory = {
                     k: torch.zeros((trajectory_length), dtype=v.dtype)
-                    if isinstance(v, torch.Tensor) else str(uuid.uuid4())
                     for k, v in data_list[0].items()
                 }
                 data_list.extend(padding_trajectories * [trajectory])
@@ -228,9 +226,7 @@ class Worker:
         multiple_of = 2 * self.sp_device_mesh["sp"].size()
         minibatches = []
         for data in data_list:
-            minibatch = {
-                "uid": [ex.pop("uid") for ex in data]
-            } if "uid" in data[0].keys() else {}
+            minibatch = {}
             for k in data[0].keys():
                 tensors = []
                 for ex in data:
@@ -265,7 +261,6 @@ class Worker:
         data_list = []
         for minibatch in minibatches:
             cu_seqlens = minibatch.pop("cu_seqlens")
-            uids = minibatch.pop("uid") if "uid" in minibatch.keys() else None
             for idx, (start_idx, end_idx) in enumerate(
                 zip(cu_seqlens[:-1], cu_seqlens[1:])
             ):
@@ -297,8 +292,6 @@ class Worker:
                     ex = {
                         k: v[:length + 1] for k, v in ex.items()
                     }
-                if uids is not None:
-                    ex["uid"] = uids[idx]
                 data_list.append(ex)
         
         if self.sp_device_mesh["sp"].get_local_rank() == 0:

@@ -89,7 +89,7 @@ class Rollout(Worker):
         
     async def rollout(self, ex, train):
 
-        uid, messages, answer = ex["uid"], ex["messages"], ex["answer"]
+        messages, answer = ex["messages"], ex["answer"]
         metric = defaultdict(list)
         for turn in range(self.config.max_turns):
 
@@ -132,7 +132,6 @@ class Rollout(Worker):
 
         ex = tokenize_messages(self.tokenizer, messages)
         ex.update({
-            "uid": uid,
             "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward])
         })  
 
@@ -204,23 +203,22 @@ class Rollout(Worker):
 
                 # Filter out groups with too low or too high average rewards, 
                 # e.g., all trajectories within the group succeed or fail.
-                _, _, uid2baseline = compute_baseline(data_list)
-                valid_uids = [
-                    uid for uid, baseline in uid2baseline.items()
-                    if self.config.group_filtering.lower < baseline < self.config.group_filtering.upper
-                ]
+                _, baseline = compute_baseline(
+                    data_list, self.config.responses_per_prompt
+                )
                 is_group_filtered = [
-                    ex["uid"] not in valid_uids for ex in data_list
-                ]
-                data_list = [
-                    ex for ex, filtered in zip(data_list, is_group_filtered)
-                    if not filtered
+                    b <= self.config.group_filtering.lower or 
+                    b >= self.config.group_filtering.upper
+                    for b in baseline
                 ]
                 wandb.log({
                     f"group_filtering_ratio/{suffix}": sum(is_group_filtered) / len(is_group_filtered)
                 }, step=step)
-
-            return data_list
+                return sum([
+                    data_list[idx * self.config.responses_per_prompt:(idx + 1) * self.config.responses_per_prompt]
+                    for idx, is_filtered in enumerate(is_group_filtered)
+                    if not is_filtered
+                ], [])
         
     def update(self, actor):
 

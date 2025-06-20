@@ -1,5 +1,4 @@
 import copy
-import uuid
 from RL2.dataset.base import BaseDataset, load_dataset
 
 class RLDataset(BaseDataset):
@@ -12,12 +11,10 @@ class RLDataset(BaseDataset):
     def __getitem__(self, idx):
 
         ex = self.dataset[idx]
-        uid = str(uuid.uuid4())
         messages = ex["messages"]
         answer = ex["answer"]
 
         return {
-            "uid": uid,
             "messages": messages,
             "answer": answer
         }

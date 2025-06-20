@@ -1,4 +1,3 @@
-from collections import defaultdict
 import torch
 import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
@@ -92,33 +91,26 @@ def compute_gae(data_list, gamma, lamda):
         ex["advantages"][indices] = gae[:len(indices)]
         ex["returns"][indices] = ret[:len(indices)]
 
-def compute_baseline(data_list):
+def compute_baseline(data_list, responses_per_prompt):
 
-    rewards = [ex["rewards"].sum() for ex in data_list]
+    rewards = torch.FloatTensor(
+        [ex["rewards"].sum() for ex in data_list]
+    ).view(-1, responses_per_prompt)
 
-    uid2rewards = defaultdict(list)
-    for ex, reward in zip(data_list, rewards):
-        uid2rewards[ex["uid"]].append(reward)
+    return rewards, rewards.mean(-1)
 
-    uid2baseline = {
-        k: (torch.stack(v).mean() if len(v) > 1 else v[0])
-        for k, v in uid2rewards.items()
-    }
+def compute_reinforce_adv(
+    data_list, responses_per_prompt, norm_var: bool
+):
 
-    return rewards, uid2rewards, uid2baseline
-
-def compute_reinforce_adv(data_list, norm_var: bool):
-
-    rewards, uid2rewards, uid2baseline = compute_baseline(data_list)
-    for ex, reward in zip(data_list, rewards):
-        ex["advantages"] = (reward - uid2baseline[ex["uid"]]) * ex["action_mask"]
+    rewards, baseline = compute_baseline(data_list, responses_per_prompt)
+    advantages = rewards - baseline.unsqueeze(-1)
 
     if norm_var:
-        uid2std = {
-            k: (torch.stack(v).std() if len(v) > 1 else 1)
-            for k, v in uid2rewards.items()
-        }
-        for ex in data_list:
-            ex["advantages"] /= (
-                uid2std[ex["uid"]] + torch.finfo(ex["advantages"].dtype).eps
-            )
+        stds = rewards.std(-1)
+        advantages /= (
+            stds.unsqueeze(-1) + torch.finfo(advantages.dtype).eps
+        )
+
+    for ex, advantage in zip(data_list, advantages.flatten()):
+        ex["advantages"] = advantage * ex["action_mask"]
