@@ -47,7 +47,7 @@ class DPOTrainer(Trainer):
         metrics = defaultdict(list)
         losses = []
         for minibatch in self.actor.tqdm(minibatches):
-            logps, _ = self.actor.forward(minibatch)
+            logps = self.actor.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 minibatch,
                 self.config.actor.beta * (logps - minibatch["ref_logps"]),

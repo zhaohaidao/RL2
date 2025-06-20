@@ -43,7 +43,7 @@ class SFTTrainer(Trainer):
         total_actions = self.actor.count_total_actions(minibatches)
         losses = []
         for minibatch in self.actor.tqdm(minibatches):
-            logps, _ = self.actor.forward(minibatch)
+            logps = self.actor.forward(minibatch)
             loss = - logps.sum() / total_actions
             (loss * dist.get_world_size()).backward()
             losses.append(loss.item())

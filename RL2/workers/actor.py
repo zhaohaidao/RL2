@@ -3,12 +3,8 @@ import torch
 import torch.distributed as dist
 from liger_kernel.transformers import AutoLigerKernelForCausalLM
 from RL2.workers import Worker
-from RL2.algs import compute_kl_term
+from RL2.algs import compute_logsumexp_by_chunk, compute_kl_term
 from RL2.utils.ring_attn import update_params_of_ring_attn
-from RL2.utils.cut_cross_entropy import (
-    substitute_lm_head_forward,
-    update_params_of_linear_cross_entropy
-)
 from RL2.utils.timing import time_logger
 
 
@@ -22,25 +18,34 @@ class Actor(Worker):
             torch_dtype=torch.float32 if train else torch.bfloat16,
             attn_implementation="flash_attention_2"
         )
-        substitute_lm_head_forward(self.model)
+
         self.prepare_model_optimizer()
 
-    def forward(self, minibatch):
+    def forward(self, minibatch, compute_entropy=False):
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
         )
-        update_params_of_linear_cross_entropy(
-            minibatch["actions"],
-            getattr(self.config, "temperature", 1.0)
-        )
-        logps, entropy = self.model(
+
+        logits = self.model(
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
             use_cache=False
-        ).logits
-        logps = logps.unsqueeze(0) * minibatch["action_mask"]
-        entropy = entropy.unsqueeze(0) * minibatch["action_mask"]
-        return logps, entropy
+        ).logits / getattr(
+            self.config, "temperature", 1.0
+        )
+        
+        action_logits = torch.gather(
+            logits, dim=-1, index=minibatch["actions"].unsqueeze(-1)
+        ).squeeze(-1)
+        logsumexp = compute_logsumexp_by_chunk(logits)
+        logps = (action_logits - logsumexp) * minibatch["action_mask"]
+        
+        if compute_entropy:
+            probs = logits.softmax(-1)
+            entropy = logsumexp - (probs * logits).sum(-1)
+            return logps, entropy * minibatch["action_mask"]
+        else:
+            return logps
 
     @time_logger("compute_logps")
     @torch.no_grad()
@@ -54,7 +59,7 @@ class Actor(Worker):
         for minibatch in self.tqdm(
             minibatches, desc=f"Compute {prefix} logps"
         ):
-            minibatch[f"{prefix}_logps"], _ = self.forward(minibatch)
+            minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
         self.offload_model_to_cpu()
         return self.resume_and_gather_data_list(minibatches) 
@@ -78,7 +83,7 @@ class Actor(Worker):
             total_actions = self.count_total_actions(batch)
             for minibatch in batch:
 
-                logps, entropy = self.forward(minibatch)
+                logps, entropy = self.forward(minibatch, True)
                 ratio = (logps - minibatch["old_logps"]).exp()
                 clipped_ratio = torch.clamp(
                     ratio,

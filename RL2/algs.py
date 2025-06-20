@@ -3,6 +3,15 @@ import torch
 import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
 
+def compute_logsumexp_by_chunk(logits, chunk_size=1024):
+    
+    logsumexp = []
+    for start in range(0, logits.shape[1], chunk_size):
+        logsumexp.append(
+            logits[:, start:start+chunk_size].logsumexp(-1)
+        )
+    return torch.cat(logsumexp, -1)
+
 def sequence_all_reduce(batch, values, device_mesh):
     # When using sequence parallelism, tokens are distributed 
     # across multiple devices, while it may require the avg ( 
