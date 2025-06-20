@@ -60,9 +60,7 @@ class RMTrainer(Trainer):
         grad_norm = self.critic.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.critic.log(
-            metrics, step, device_mesh=self.critic.sp_device_mesh["dp"]
-        )
+        self.critic.log(metrics, step)
         self.critic.log(
             {"loss": losses}, step, False, self.critic.sp_device_mesh["dp"]
         )

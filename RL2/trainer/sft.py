@@ -50,14 +50,8 @@ class SFTTrainer(Trainer):
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
-        self.actor.log(
-            {"loss": losses}, step, False, self.actor.sp_device_mesh["dp"]
-        )
-        self.actor.log(
-            {"grad_norm": [grad_norm]},
-            step,
-            device_mesh=self.actor.sp_device_mesh["dp"]
-        )
+        self.actor.log({"loss": losses}, step, False)
+        self.actor.log({"grad_norm": [grad_norm]}, step)
 
     def train(self):
 

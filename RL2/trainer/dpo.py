@@ -66,9 +66,7 @@ class DPOTrainer(Trainer):
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.actor.log(
-            metrics, step, device_mesh=self.actor.sp_device_mesh["dp"]
-        )
+        self.actor.log(metrics, step)
         self.actor.log(
             {"loss": losses}, step, False, self.actor.sp_device_mesh["dp"]
         )
