@@ -1,5 +1,5 @@
 torchrun \
-    --nproc_per_node=8 \
+    --nproc_per_node=4 \
     -m RL2.trainer.sft \
     data.path=Chenmien/LIMO \
     data.max_length=16384 \

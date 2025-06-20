@@ -4,6 +4,6 @@ torchrun \
     data.path=Chenmien/SkyworkRM \
     data.max_length=2048 \
     critic.model_name=meta-llama/Llama-3.1-8B-Instruct \
-    critic.max_length_per_device=4096 \
+    critic.max_length_per_device=8192 \
     trainer.project=SkyworkRM \
     trainer.experiment_name=llama-3.1-8b-inst
