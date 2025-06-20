@@ -68,7 +68,7 @@ class DPOTrainer(Trainer):
         metrics["grad_norm"].append(grad_norm)
         self.actor.log(metrics, step)
         self.actor.log(
-            {"loss": losses}, step, op="sum", self.actor.sp_device_mesh["dp"]
+            {"loss": losses}, step, op="sum", device_mesh=self.actor.sp_device_mesh["dp"]
         )
 
     def train(self):

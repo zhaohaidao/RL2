@@ -62,7 +62,7 @@ class RMTrainer(Trainer):
         metrics["grad_norm"].append(grad_norm)
         self.critic.log(metrics, step)
         self.critic.log(
-            {"loss": losses}, step, op="sum", self.critic.sp_device_mesh["dp"]
+            {"loss": losses}, step, op="sum", device_mesh=self.critic.sp_device_mesh["dp"]
         )
 
     def train(self):
