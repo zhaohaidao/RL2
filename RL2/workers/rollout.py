@@ -183,6 +183,9 @@ class Rollout(Worker):
 
             data_list, all_messages, metrics = map(list, zip(*outputs))
 
+            if dist.get_rank() == 0:
+                tqdm.write(json.dumps(all_messages[0], indent=4))
+
             metrics = {
                 k: sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()
@@ -194,13 +197,14 @@ class Rollout(Worker):
                 device_mesh=self.device_mesh["dp"]
             )
 
+            if not train:
+                return
+
             data_list = gather_and_concat_list(
                 data_list, self.device_mesh["dp"]
             )
 
             if dist.get_rank() == 0:
-                tqdm.write(json.dumps(all_messages[0], indent=4))
-
                 # Filter out groups with too low or too high average rewards, 
                 # e.g., all trajectories within the group succeed or fail.
                 _, baseline = compute_baseline(
@@ -212,7 +216,7 @@ class Rollout(Worker):
                     for b in baseline
                 ]
                 wandb.log({
-                    f"group_filtering_ratio/{suffix}": sum(is_group_filtered) / len(is_group_filtered)
+                    "group_filtering_ratio": sum(is_group_filtered) / len(is_group_filtered)
                 }, step=step)
                 return sum([
                     data_list[idx * self.config.responses_per_prompt:(idx + 1) * self.config.responses_per_prompt]
