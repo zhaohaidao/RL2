@@ -13,6 +13,7 @@ from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from tqdm.asyncio import tqdm
+import wandb
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_baseline
@@ -140,6 +141,10 @@ class Rollout(Worker):
     @time_logger("rollout")
     def __call__(self, data_list, train: bool, step: int):
 
+        # Before each worker operation, the data is distributed from rank 0
+        # and gathered before the next operation, which facilitates to do
+        # model-agnostic operations, e.g., computing advantages, globally 
+        # and guarantees the load balancing across all model computations.
         if self.device_mesh["tp"].get_local_rank() == 0:
 
             if dist.get_rank() == 0:
@@ -173,30 +178,16 @@ class Rollout(Worker):
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
 
+        dist.barrier()
+
+        if self.device_mesh["tp"].get_local_rank() == 0:
+
             data_list, all_messages, metrics = map(list, zip(*outputs))
-            if dist.get_rank() == 0:
-                tqdm.write(json.dumps(all_messages[0], indent=4))
+
             metrics = {
                 k: sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()
             }
-
-            # Filter out groups with too low or too high average rewards, 
-            # e.g., all trajectories within the group succeed or fail.
-            _, _, uid2baseline = compute_baseline(data_list)
-            valid_uids = [
-                uid for uid, baseline in uid2baseline.items()
-                if self.config.group_filtering.lower < baseline < self.config.group_filtering.upper
-            ]
-            is_group_filtered = [
-                ex["uid"] not in valid_uids for ex in data_list
-            ]
-            data_list = [
-                ex for ex, filtered in zip(data_list, is_group_filtered)
-                if not filtered
-            ]
-            metrics["group_filtering_ratio"] = is_group_filtered
-            
             suffix = "train" if train else "test"
             self.log(
                 {f"{k}/{suffix}": v for k, v in metrics.items()},
@@ -204,16 +195,32 @@ class Rollout(Worker):
                 device_mesh=self.device_mesh["dp"]
             )
 
-        dist.barrier()
-
-        # After each worker operation, the data is aggregated to rank 0 and 
-        # re-distributed before the next operation, which facilitates to do 
-        # model-agnostic operations, e.g., computing advantages, globally 
-        # and guarantees the load balancing across all model computations.
-        if self.device_mesh["tp"].get_local_rank() == 0:
-            return gather_and_concat_list(
+            data_list = gather_and_concat_list(
                 data_list, self.device_mesh["dp"]
             )
+
+            if dist.get_rank() == 0:
+                tqdm.write(json.dumps(all_messages[0], indent=4))
+
+                # Filter out groups with too low or too high average rewards, 
+                # e.g., all trajectories within the group succeed or fail.
+                _, _, uid2baseline = compute_baseline(data_list)
+                valid_uids = [
+                    uid for uid, baseline in uid2baseline.items()
+                    if self.config.group_filtering.lower < baseline < self.config.group_filtering.upper
+                ]
+                is_group_filtered = [
+                    ex["uid"] not in valid_uids for ex in data_list
+                ]
+                data_list = [
+                    ex for ex, filtered in zip(data_list, is_group_filtered)
+                    if not filtered
+                ]
+                wandb.log({
+                    f"group_filtering_ratio/{suffix}": sum(is_group_filtered) / len(is_group_filtered)
+                }, step=step)
+
+            return data_list
         
     def update(self, actor):
 

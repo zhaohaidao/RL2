@@ -182,6 +182,9 @@ class Worker:
             n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             if len(seq_len_list) < n_minibatches:
+                # After letting n_minibatches to be multiple of dp size,
+                # it may be larger than the number of trajectories so that
+                # there are not enough trajectories to fill all minibatches.
                 padding_trajectories = n_minibatches - len(seq_len_list)
                 trajectory_length = 2 * self.sp_device_mesh["sp"].size()
                 trajectory = {
