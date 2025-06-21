@@ -17,7 +17,7 @@ import wandb
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_baseline
-from RL2.utils.comm import gather_and_concat_list
+from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
 from RL2.utils.timing import time_logger
 
 
@@ -146,25 +146,9 @@ class Rollout(Worker):
         # and guarantees the load balancing across all model computations.
         if self.device_mesh["tp"].get_local_rank() == 0:
 
-            if dist.get_rank() == 0:
-                data_per_dp = math.ceil(
-                    len(data_list) / self.device_mesh["dp"].size()
-                )
-                data_lists = [
-                    data_list[rank * data_per_dp:(rank + 1) * data_per_dp]
-                    for rank in range(self.device_mesh["dp"].size())
-                ]
-            else:
-                data_lists = [None for _ in range(self.device_mesh["dp"].size())]
-            data_list = [None]
-            dist.scatter_object_list(
-                data_list,
-                data_lists,
-                group=self.device_mesh["dp"].get_group(),
-                group_src=0    
+            data_list = split_and_scatter_list(
+                data_list, self.device_mesh["dp"]
             )
-            data_list = data_list[0]
-
             loop = asyncio.get_event_loop()
             outputs = loop.run_until_complete(
                 tqdm.gather(

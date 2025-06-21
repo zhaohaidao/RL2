@@ -13,7 +13,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 import wandb
 from tqdm import tqdm
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
-from RL2.utils.comm import gather_and_concat_list
+from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
         
 
 class Worker:
@@ -123,14 +123,16 @@ class Worker:
             # Pack minibatches into multiple batches, where each batch is 
             # used for an update and contains multiple minibatches.
             if dist.get_rank() == 0:
+                # At least a trajectory is used for an update.
+                n_updates = min(self.config.update_per_rollout, len(data_list))
                 n_trajectories_per_update = math.ceil(
-                    len(data_list) / self.config.update_per_rollout
+                    len(data_list) / n_updates
                 )
                 return [
                     self.scatter_and_pack_data_list(
                         data_list[update * n_trajectories_per_update:(update + 1) * n_trajectories_per_update]
                     )
-                    for update in range(self.config.update_per_rollout)
+                    for update in range(n_updates)
                 ]
             else:
                 return [
@@ -150,8 +152,6 @@ class Worker:
                     continue
                 pad_tokens = multiple_of - len(ex["states"]) % multiple_of
                 for k, v in ex.items():
-                    if not isinstance(v, torch.Tensor):
-                        continue
                     ex[k] = torch.cat(
                         (v, torch.zeros((pad_tokens), dtype=v.dtype)),
                     -1)
@@ -214,13 +214,10 @@ class Worker:
                 for rank in range(self.sp_device_mesh["dp"].size())
                 for _ in range(self.sp_device_mesh["sp"].size())
             ]
-        else:
-            data_lists = [None for _ in range(dist.get_world_size())]
         
-        # Scatter data to all processes from rank 0.
-        data_list = [None]
-        dist.scatter_object_list(data_list, data_lists, src=0)
-        data_list = data_list[0]
+        data_list = split_and_scatter_list(
+            data_lists if dist.get_rank() == 0 else None,
+        )[0]
         
         rank = self.sp_device_mesh["sp"].get_local_rank()
         multiple_of = 2 * self.sp_device_mesh["sp"].size()
