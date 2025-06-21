@@ -9,7 +9,6 @@ from RL2.utils.timing import time_logger
 
 
 class Actor(Worker):
-    task_type = "CAUSAL_LM"
 
     def __init__(self, config, train: bool):
         super().__init__(config, train)
@@ -43,8 +42,10 @@ class Actor(Worker):
         
         if compute_entropy:
             probs = logits.softmax(-1)
-            entropy = logsumexp - (probs * logits).sum(-1)
-            return logps, entropy * minibatch["action_mask"]
+            entropy = (
+                logsumexp - (probs * logits).sum(-1)
+            ) * minibatch["action_mask"]
+            return logps, entropy
         else:
             return logps
 

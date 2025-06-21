@@ -9,7 +9,7 @@ from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
 import transformers
-from peft import LoraConfig, TaskType, get_peft_model
+from peft import LoraConfig, get_peft_model
 import wandb
 from tqdm import tqdm
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
@@ -57,7 +57,6 @@ class Worker:
             self.model.enable_input_require_grads()
 
             lora_config = LoraConfig(
-                task_type=getattr(TaskType, self.task_type),
                 r=self.config.lora.rank,
                 lora_alpha=self.config.lora.alpha,
                 target_modules=self.config.lora.target_modules,
