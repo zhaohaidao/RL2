@@ -203,7 +203,8 @@ class Rollout(Worker):
                     if not is_filtered
                 ], [])
         
-    def update(self, actor):
+    @time_logger("update_rollout")
+    def update(self, actor, step):
 
         torch.cuda.empty_cache()
         # or llm.resume_memory_occupation() may OOM

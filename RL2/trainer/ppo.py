@@ -111,7 +111,7 @@ class PPOTrainer(Trainer):
                     self.critic.update(data_list, step)
 
                 self.actor.update(data_list, step)
-                self.rollout.update(self.actor)
+                self.rollout.update(self.actor, step)
 
                 step += 1
                 if step % self.config.trainer.test_freq == 0:
