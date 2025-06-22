@@ -1,5 +1,5 @@
 torchrun \
-    --nproc_per_node=8 \
+    --nproc_per_node=4 \
     -m RL2.trainer.ppo \
     data.train_data_path=Chenmien/OpenReasonerZero \
     data.test_data_path=Chenmien/OlympiadBench \

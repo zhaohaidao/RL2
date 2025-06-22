@@ -1,5 +1,7 @@
 from omegaconf import OmegaConf
+from torch.utils.data import DataLoader
 import torch.distributed as dist
+from transformers import get_cosine_schedule_with_warmup
 import wandb
 
 class Trainer:
@@ -19,3 +21,23 @@ class Trainer:
                 )
             else:
                 wandb.log = lambda *args, **kwargs: None
+
+    def prepare_dataloader(self, dataset):
+        return DataLoader(
+            dataset,
+            self.config.data.batch_size,
+            shuffle=True,
+            drop_last=True,
+            collate_fn=dataset.collate_fn
+        )
+    
+    def prepare_scheduler(self, worker):
+
+        num_training_steps = self.config.trainer.n_epochs * len(self.dataloader)
+        num_warmup_steps = int(worker.config.warmup_ratio * num_training_steps)
+
+        return get_cosine_schedule_with_warmup(
+            worker.optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps
+        )
