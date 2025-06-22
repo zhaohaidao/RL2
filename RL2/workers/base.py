@@ -161,41 +161,56 @@ class Worker:
             seq_len_list = [len(ex["states"]) for ex in data_list]
             if pair:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
-                seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(dim=-1).flatten().tolist()
-            n_minibatches = math.ceil(
-                sum(seq_len_list) / (
-                    self.sp_device_mesh["sp"].size() * (
-                        self.config.max_length_per_device
-                        if torch.is_grad_enabled()
-                        else self.config.max_inference_length_per_device
-                    )
+                seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(-1).flatten().tolist()
+            max_length_per_dp = (
+                self.sp_device_mesh["sp"].size() * (
+                    self.config.max_length_per_device
+                    if torch.is_grad_enabled()
+                    else self.config.max_inference_length_per_device
                 )
             )
-            
+            assert max(seq_len_list) <= max_length_per_dp, \
+                f"The longest trajectory has a total length of {max(seq_len_list)}," \
+                f"which exceeds the maximum length per dp {max_length_per_dp}."
+            n_minibatches = math.ceil(
+                sum(seq_len_list) / max_length_per_dp
+            )
+
             # Every dp should has identical number of minibatches, thus the 
             # total number of minibatches must be a multiple of dp size.
             multiple_of = self.sp_device_mesh["dp"].size()
             if n_minibatches % multiple_of != 0:
                 n_minibatches += (multiple_of - n_minibatches % multiple_of)
-            n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
 
             if len(seq_len_list) < n_minibatches:
                 # After letting n_minibatches to be multiple of dp size,
                 # it may be larger than the number of trajectories so that
                 # there are not enough trajectories to fill all minibatches.
-                padding_trajectories = n_minibatches - len(seq_len_list)
+                self.padding_trajectories = n_minibatches - len(seq_len_list)
                 trajectory_length = 2 * self.sp_device_mesh["sp"].size()
                 trajectory = {
                     k: torch.zeros((trajectory_length), dtype=v.dtype)
                     for k, v in data_list[0].items()
                 }
-                data_list.extend(padding_trajectories * [trajectory])
-                seq_len_list.extend(padding_trajectories * [trajectory_length])
+                data_list.extend(self.padding_trajectories * [trajectory])
+                seq_len_list.extend(self.padding_trajectories * [trajectory_length])
+            else:
+                self.padding_trajectories = 0
 
             # Partition data into n_minibatches balanced minibatches.
-            partitions: List[List[int]] = get_seqlen_balanced_partitions(
-                seq_len_list, k_partitions=n_minibatches, equal_size=False
-            )
+            while True:
+                partitions: List[List[int]] = get_seqlen_balanced_partitions(
+                    seq_len_list, k_partitions=n_minibatches, equal_size=False
+                )
+                max_minibatch_length = max([
+                    sum([seq_len_list[p] for p in partition])
+                    for partition in partitions
+                ])
+                if max_minibatch_length <= max_length_per_dp:
+                    break
+                n_minibatches += self.sp_device_mesh["dp"].size()
+            n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
+
             if pair:
                 partitions = [
                     sum([[2 * p, 2 * p + 1] for p in partition], [])
@@ -298,6 +313,8 @@ class Worker:
                 data_list = len(shuffled_data_list) * [None]
                 for idx, ex in zip(self.shuffle_indices, shuffled_data_list):
                     data_list[idx] = ex
+                if self.padding_trajectories > 0:
+                    data_list = data_list[:-self.padding_trajectories]
                 return data_list
             
     def count_total_actions(self, minibatches):
