@@ -1,11 +1,12 @@
 import hydra
+from collections import defaultdict
 import torch.distributed as dist
 from transformers import AutoTokenizer
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import SFTDataset
 from RL2.workers import Actor
-from RL2.utils.comm import initialize_global_process_group
+from RL2.utils.comm import initialize_global_process_group, log
 from RL2.utils.timing import time_logger
 
 
@@ -26,19 +27,18 @@ class SFTTrainer(Trainer):
     def update_actor(self, data_list, step):
 
         minibatches = self.actor.scatter_and_pack_data_list(data_list)
-
         total_actions = self.actor.count_total_actions(minibatches)
-        losses = []
+        metrics = defaultdict(list)
         for minibatch in self.actor.tqdm(minibatches):
             logps = self.actor.forward(minibatch)
             loss = - logps.sum() / total_actions
             (loss * dist.get_world_size()).backward()
-            losses.append(loss.item())
+            metrics["loss"].append(loss.item())
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
-        self.actor.log({"loss": losses}, step, op="sum")
-        self.actor.log({"grad_norm": [grad_norm]}, step)
+        metrics["grad_norm"].append(grad_norm)
+        log(metrics, step)
 
     def train(self):
 

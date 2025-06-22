@@ -3,6 +3,7 @@ import torch
 import torch.distributed as dist
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
+from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
 
@@ -55,10 +56,10 @@ class Critic(Worker):
             desc="Update critic"
         )
         metrics = defaultdict(list)
-        grad_norms = []
         for batch in batches:
 
             total_actions = self.count_total_actions(batch)
+            metric = defaultdict(list)
             for minibatch in batch:
 
                 values = self.forward(minibatch)
@@ -75,14 +76,18 @@ class Critic(Worker):
                 (loss * dist.get_world_size()).backward()
 
                 tbar.update()
-                metrics["critic/loss"].append(loss.item())
-                metrics["critic/clip_ratio"].append(clip_ratio.item())
+                metric["critic/loss"].append(loss.item())
+                metric["critic/clip_ratio"].append(clip_ratio.item())
 
             grad_norm = self.optimizer_step()
-            grad_norms.append(grad_norm)
+            
+            for k, v in metric.items():
+                v = gather_and_concat_list(v)
+                if dist.get_rank() == 0:
+                    metrics[k].append(sum(v))
+            metrics["actor/grad_norm"].append(grad_norm)
 
-        self.log(metrics, step, op="sum")
-        self.log({"critic/grad_norm": grad_norms}, step)
+        self.log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
 

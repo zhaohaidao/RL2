@@ -16,7 +16,7 @@ import wandb
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_baseline
-from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
+from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list, log
 from RL2.utils.timing import time_logger
 
 
@@ -169,16 +169,12 @@ class Rollout(Worker):
             if dist.get_rank() == 0:
                 tqdm.write(json.dumps(all_messages[0], indent=4))
 
+            suffix = "train" if train else "test"
             metrics = {
-                k: sum([metric[k] for metric in metrics], [])
+                f"{k}/{suffix}": sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()
             }
-            suffix = "train" if train else "test"
-            self.log(
-                {f"{k}/{suffix}": v for k, v in metrics.items()},
-                step=step,
-                device_mesh=self.device_mesh["dp"]
-            )
+            log(metrics, step, self.device_mesh["dp"])
 
             if not train:
                 return

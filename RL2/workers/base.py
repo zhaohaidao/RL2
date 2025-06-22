@@ -375,21 +375,17 @@ class Worker:
             **kwargs
         )
 
-    def log(self, metrics, step, op="mean", device_mesh=None):
-
-        metrics = {
-            k: gather_and_concat_list(v, device_mesh)
-            for k, v in metrics.items()
-        }
+    def log(self, metrics, step):
         
         if dist.get_rank() == 0:
-            wandb.log(
-                {
-                    k: sum(v) / (len(v) if op == "mean" else 1.0)
-                    for k, v in metrics.items()
-                },
-                step=step
-            )
+            metrics = {
+                k: sum(v) / len(v)
+                for k, v in metrics.items()
+            }
+            tqdm.write(f"Step {step + 1}, " + ", ".join([
+                f"{k}: {v:.3g}" for k, v in metrics.items()
+            ]))
+            wandb.log(metrics, step=step)
 
     def save(self, step=None, rm=False):
 

@@ -8,7 +8,7 @@ from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
 from RL2.workers import Actor
 from RL2.algs import sequence_all_reduce
-from RL2.utils.comm import initialize_global_process_group
+from RL2.utils.comm import initialize_global_process_group, log
 from RL2.utils.timing import time_logger
 
 
@@ -32,7 +32,6 @@ class DPOTrainer(Trainer):
         minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
 
         metrics = defaultdict(list)
-        losses = []
         for minibatch in self.actor.tqdm(minibatches):
             logps = self.actor.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
@@ -47,16 +46,13 @@ class DPOTrainer(Trainer):
             metrics["rewards/chosen"].extend(chosen_rewards.tolist())
             metrics["rewards/rejected"].extend(rejected_rewards.tolist())
             metrics["rewards/margin"].extend(reward_margins.tolist())
+            metrics["loss"].append(loss.item())
             metrics["accuray"].extend((reward_margins > 0).tolist())
-            losses.append(loss.item())
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.actor.log(metrics, step)
-        self.actor.log(
-            {"loss": losses}, step, op="sum", device_mesh=self.actor.sp_device_mesh["dp"]
-        )
+        log(metrics, step, self.actor.sp_device_mesh["dp"])
 
     def train(self):
 

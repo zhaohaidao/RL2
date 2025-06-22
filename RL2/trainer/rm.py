@@ -8,7 +8,7 @@ from RL2.trainer import Trainer
 from RL2.dataset import RMDataset
 from RL2.workers import Critic
 from RL2.algs import sequence_all_reduce
-from RL2.utils.comm import initialize_global_process_group
+from RL2.utils.comm import initialize_global_process_group, log
 from RL2.utils.timing import time_logger
 
 
@@ -31,7 +31,6 @@ class RMTrainer(Trainer):
         minibatches = self.critic.scatter_and_pack_data_list(data_list, pair=True)
 
         metrics = defaultdict(list)
-        losses = []
         for minibatch in self.critic.tqdm(minibatches):
             rewards = self.critic.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
@@ -41,16 +40,13 @@ class RMTrainer(Trainer):
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
             (loss * dist.get_world_size()).backward()
 
+            metrics["loss"].append(loss.item())
             metrics["accuray"].extend((reward_margins > 0).tolist())
-            losses.append(loss.item())
 
         grad_norm = self.critic.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.critic.log(metrics, step)
-        self.critic.log(
-            {"loss": losses}, step, op="sum", device_mesh=self.critic.sp_device_mesh["dp"]
-        )
+        log(metrics, step, self.critic.sp_device_mesh["dp"])
 
     def train(self):
 
