@@ -29,7 +29,9 @@ class SFTTrainer(Trainer):
         minibatches = self.actor.scatter_and_pack_data_list(data_list)
         total_actions = self.actor.count_total_actions(minibatches)
         metrics = defaultdict(list)
-        for minibatch in self.actor.tqdm(minibatches):
+        for minibatch in self.actor.tqdm(
+            minibatches, desc="Update actor"
+        ):
             logps = self.actor.forward(minibatch)
             loss = - logps.sum() / total_actions
             (loss * dist.get_world_size()).backward()

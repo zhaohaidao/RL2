@@ -31,7 +31,9 @@ class RMTrainer(Trainer):
         minibatches = self.critic.scatter_and_pack_data_list(data_list, pair=True)
 
         metrics = defaultdict(list)
-        for minibatch in self.critic.tqdm(minibatches):
+        for minibatch in self.critic.tqdm(
+            minibatches, desc="Update critic"
+        ):
             rewards = self.critic.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 minibatch, rewards, self.critic.sp_device_mesh["sp"]

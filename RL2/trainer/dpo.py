@@ -32,7 +32,9 @@ class DPOTrainer(Trainer):
         minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
 
         metrics = defaultdict(list)
-        for minibatch in self.actor.tqdm(minibatches):
+        for minibatch in self.actor.tqdm(
+            minibatches, desc="Update actor"
+        ):
             logps = self.actor.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 minibatch,

@@ -122,16 +122,14 @@ class Worker:
             # Pack minibatches into multiple batches, where each batch is 
             # used for an update and contains multiple minibatches.
             if dist.get_rank() == 0:
-                # At least a trajectory is used for an update.
-                n_updates = min(self.config.update_per_rollout, len(data_list))
                 n_trajectories_per_update = math.ceil(
-                    len(data_list) / n_updates
+                    len(data_list) / self.config.update_per_rollout
                 )
                 return [
                     self.scatter_and_pack_data_list(
                         data_list[update * n_trajectories_per_update:(update + 1) * n_trajectories_per_update]
                     )
-                    for update in range(n_updates)
+                    for update in range(self.config.update_per_rollout)
                 ]
             else:
                 return [
@@ -217,7 +215,7 @@ class Worker:
                     for partition in partitions
                 ]
             # We cache the shuffle indices to resume data order in 
-            # `resume_and_gather_data_list`.
+            # `unpack_and_gather_data_list`.
             self.shuffle_indices = sum(partitions, [])
             # The n-th list contains data for rank n.
             data_lists = [
@@ -267,7 +265,7 @@ class Worker:
         
         return minibatches
 
-    def resume_and_gather_data_list(self, minibatches):
+    def unpack_and_gather_data_list(self, minibatches):
 
         data_list = []
         for minibatch in minibatches:
@@ -375,7 +373,7 @@ class Worker:
             **kwargs
         )
 
-    def log(self, metrics, step):
+    def rank0_log(self, metrics, step):
         
         if dist.get_rank() == 0:
             metrics = {

@@ -65,7 +65,7 @@ class Actor(Worker):
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
 
         self.offload_model_to_cpu()
-        return self.resume_and_gather_data_list(minibatches) 
+        return self.unpack_and_gather_data_list(minibatches) 
     
     @time_logger("update_actor")
     def update(self, data_list, step: int):
@@ -123,6 +123,6 @@ class Actor(Worker):
                     metrics[k].append(sum(v))
             metrics["actor/grad_norm"].append(grad_norm)
 
-        self.log(metrics, step)
+        self.rank0_log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
