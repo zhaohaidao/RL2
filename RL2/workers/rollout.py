@@ -159,6 +159,8 @@ class Rollout(Worker):
             if train:
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
+                if dist.get_rank() == 0:
+                    tqdm.write(f"After offloading inference engine, {torch.cuda.memory_allocated() / 1024 ** 3:.3g} GB memory is allocated.")
 
         dist.barrier()
 

@@ -107,6 +107,9 @@ class Worker:
             return
         for param in self.model.parameters():
             param.data = param.data.to("cpu", non_blocking=True)
+        torch.cuda.synchronize()
+        if dist.get_rank() == 0:
+            tqdm.write(f"After offloading model, {torch.cuda.memory_allocated() / 1024 ** 3:.3g} GB memory is allocated.")
     
     def load_model_to_gpu(self):
         if not getattr(self.config, "offload_model", False):
@@ -115,6 +118,9 @@ class Worker:
             param.data = param.data.to(
                 torch.cuda.current_device(), non_blocking=True
             )
+        torch.cuda.synchronize()
+        if dist.get_rank() == 0:
+            tqdm.write(f"After loading model, {torch.cuda.memory_allocated() / 1024 ** 3:.3g} GB memory is allocated.")
 
     def scatter_and_pack_data_list(self, data_list, pack_minibatches=False, pair=False):
 
@@ -270,8 +276,8 @@ class Worker:
         data_list = []
         for minibatch in minibatches:
             cu_seqlens = minibatch.pop("cu_seqlens")
-            for idx, (start_idx, end_idx) in enumerate(
-                zip(cu_seqlens[:-1], cu_seqlens[1:])
+            for start_idx, end_idx in zip(
+                cu_seqlens[:-1], cu_seqlens[1:]
             ):
                 ex = {}
                 for k, v in minibatch.items():
@@ -296,11 +302,10 @@ class Worker:
                         inorder_tensors + reversed_tensors[::-1]
                     )).to("cpu")
 
-                if self.sp_device_mesh["sp"].get_local_rank() == 0:
-                    length = torch.argmax(ex["position_ids"]).item()
-                    ex = {
-                        k: v[:length + 1] for k, v in ex.items()
-                    }
+                length = torch.argmax(ex["position_ids"]).item()
+                ex = {
+                    k: v[:length + 1] for k, v in ex.items()
+                }
                 data_list.append(ex)
         
         if self.sp_device_mesh["sp"].get_local_rank() == 0:
