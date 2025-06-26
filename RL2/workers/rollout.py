@@ -126,13 +126,14 @@ class Rollout(Worker):
 
         reward = self.env.reward_fn(messages, answer)
 
-        metric["n_turns"].append(turn + 1)
-        metric["rewards"].append(reward)
-
         ex = tokenize_messages(self.tokenizer, messages)
         ex.update({
             "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward])
-        })  
+        })
+
+        metric["n_turns"].append(turn + 1)
+        metric["rewards"].append(reward)
+        metric["trajectory_length"].append(len(ex["states"]))
 
         return ex, messages, metric
 
@@ -159,8 +160,6 @@ class Rollout(Worker):
             if train:
                 # If test, llm will soon be called again. See `Trainer.train`.
                 self.llm.release_memory_occupation()
-                if dist.get_rank() == 0:
-                    tqdm.write(f"After offloading inference engine, {torch.cuda.memory_allocated() / 1024 ** 3:.3g} GB memory is allocated.")
 
         dist.barrier()
 
