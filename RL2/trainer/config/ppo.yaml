@@ -21,6 +21,7 @@ actor:
   freeze_steps: 0
   offload_model: true
   offload_optimizer: true
+  adv_estimator: ${adv.estimator}
   save_dir: ckpts/${trainer.experiment_name}/actor
   save_freq: null
   save_optimizer: true
@@ -51,6 +52,7 @@ rollout:
   group_filtering:
     lower: 0.0
     upper: 1.0
+  adv_estimator: ${adv.estimator}
 
 ref_actor:
   model_name: ${actor.model_name}

@@ -95,22 +95,20 @@ class PPOTrainer(Trainer):
 
                 data_list = self.rollout(data_list, True, step)
 
-                data_list = self.actor.compute_logps(data_list, step)
                 if self.config.actor.kl.coef > 0:
                     data_list = self.ref_actor.compute_logps(data_list, step)
-                    if dist.get_rank() == 0:
-                        self.compute_kl_term(data_list, step)
-
                 if self.config.adv.estimator == "gae":
                     data_list = self.critic.compute_values(data_list, step)
+                data_list = self.actor.compute_logps(data_list, step)
 
                 if dist.get_rank() == 0:
+                    if self.config.actor.kl.coef > 0:
+                        self.compute_kl_term(data_list, step)
                     self.compute_advantages(data_list, step)
 
+                self.actor.update(data_list, step)
                 if self.config.adv.estimator == "gae":
                     self.critic.update(data_list, step)
-
-                self.actor.update(data_list, step)
                 self.rollout.update(self.actor, step)
 
                 step += 1

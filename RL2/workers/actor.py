@@ -63,14 +63,15 @@ class Actor(Worker):
             minibatches, desc=f"Compute {prefix} logps"
         ):
             minibatch[f"{prefix}_logps"] = self.forward(minibatch)
-
-        self.offload_model_to_cpu()
+        
+        if not self.train:
+            self.offload_model_to_cpu()
         return self.unpack_and_gather_data_list(minibatches) 
     
     @time_logger("update_actor")
     def update(self, data_list, step: int):
-        self.load_model_to_gpu()
         if step < self.config.freeze_steps:
+            self.offload_model_to_cpu()
             return
         batches = self.scatter_and_pack_data_list(data_list, True)
 
@@ -126,3 +127,6 @@ class Actor(Worker):
         self.rank0_log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:
             self.save(step)
+
+        if self.config.adv_estimator == "gae":
+            self.offload_model_to_cpu()

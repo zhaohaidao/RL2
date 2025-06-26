@@ -42,12 +42,12 @@ class Critic(Worker):
         for minibatch in self.tqdm(minibatches, desc="Compute values"):
             minibatch["values"] = self.forward(minibatch)
         
-        # No need to offload model because it will be updated soon. See `Trainer.train`.
+        self.offload_model_to_cpu()
         return self.unpack_and_gather_data_list(minibatches)
 
     @time_logger("update_critic")
     def update(self, data_list, step: int):
-        # Model has been loaded in `compute_values`. See `Trainer.train`.
+        self.load_model_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
