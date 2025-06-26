@@ -99,7 +99,8 @@ class PPOTrainer(Trainer):
                     data_list = self.ref_actor.compute_logps(data_list, step)
                 if self.config.adv.estimator == "gae":
                     data_list = self.critic.compute_values(data_list, step)
-                data_list = self.actor.compute_logps(data_list, step)
+                if self.config.actor.kl.coef > 0 or self.config.actor.update_per_rollout > 1:
+                    data_list = self.actor.compute_logps(data_list, step)
 
                 if dist.get_rank() == 0:
                     if self.config.actor.kl.coef > 0:

@@ -73,6 +73,8 @@ class Actor(Worker):
         if step < self.config.freeze_steps:
             self.offload_model_to_cpu()
             return
+        if self.config.kl.coef == 0 and self.config.update_per_rollout == 1:
+            self.load_model_to_gpu()
         batches = self.scatter_and_pack_data_list(data_list, True)
 
         self.model.train()
@@ -81,25 +83,30 @@ class Actor(Worker):
             desc="Update actor"
         )
         metrics = defaultdict(list)
-        for batch in batches:
+        for update, batch in enumerate(batches):
             
             total_actions = self.count_total_actions(batch)
             metric = defaultdict(list)
             for minibatch in batch:
 
                 logps, entropy = self.forward(minibatch, True)
-                ratio = (logps - minibatch["old_logps"]).exp()
-                clipped_ratio = torch.clamp(
-                    ratio,
-                    1 - self.config.clip,
-                    1 + self.config.clip
-                )
-                objective = minibatch["advantages"] * ratio
-                clipped_objective = minibatch["advantages"] * clipped_ratio
-                entropy = entropy.sum() / total_actions
-                policy_loss = - torch.min(objective, clipped_objective).sum() / total_actions
-                loss = policy_loss - self.config.entropy.coef * entropy
-                clip_ratio = (objective > clipped_objective).sum() / total_actions
+                if update == 0:
+                    loss = - (minibatch["advantages"] * logps).sum() / total_actions
+                    clip_ratio = torch.zeros_like(loss)
+                else:
+                    ratio = (logps - minibatch["old_logps"]).exp()
+                    clipped_ratio = torch.clamp(
+                        ratio,
+                        1 - self.config.clip,
+                        1 + self.config.clip
+                    )
+                    objective = minibatch["advantages"] * ratio
+                    clipped_objective = minibatch["advantages"] * clipped_ratio
+                    loss = - torch.min(objective, clipped_objective).sum() / total_actions
+                    clip_ratio = (objective > clipped_objective).sum() / total_actions
+
+                entropy_loss = - entropy.sum() / total_actions
+                loss = loss + self.config.entropy.coef * entropy_loss
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":
                     kl_loss = compute_kl_term(
@@ -112,7 +119,7 @@ class Actor(Worker):
                 (loss * dist.get_world_size()).backward() 
 
                 tbar.update()
-                metric["actor/entropy"].append(entropy.item())
+                metric["actor/entropy_loss"].append(entropy_loss.item())
                 metric["actor/loss"].append(loss.item())
                 metric["actor/clip_ratio"].append(clip_ratio.item())
 
