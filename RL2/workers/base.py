@@ -35,7 +35,7 @@ class Worker:
         else:
             self.device_mesh = dist.device_mesh.init_device_mesh(
                 "cuda",
-                mesh_dim_names=("fsdp"),
+                mesh_dim_names=("fsdp",),
                 mesh_shape=(dist.get_world_size(),)
             )
 
