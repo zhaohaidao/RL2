@@ -8,7 +8,7 @@ You can simply launch the training with `torchrun` as you do in supervised fine-
 
 Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
-* Model partition via Fully Sharded Data Parallelism
+* Model partition via Fully Sharded Data Parallelism (and Tensor Parallelism upcoming!)
 * Efficient sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
 * Inference engine and KV cache partition via Tensor Parallelism
 
@@ -109,7 +109,7 @@ This project is built upon the basis of many remarkable projects, including but 
 We also thank [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF) and [veRL](https://github.com/volcengine/verl) for their pioneering work.
 
 ## Citation
-If you find this library useful, please cite in the follwing format
+If you find this library useful, please cite in the following format
 ```
 @misc{Tan2025RL2,
     author={Chenmien Tan and Simon Yu and Lanbo Lin and Ze Zhang and Yuanwu Xu and Chenhao Jiang and Tianyuan Yang and Sicong Xie and Guannan Zhang},
