@@ -103,14 +103,26 @@ class Rollout(Worker):
                 sampling_params=self.train_sampling_params
                 if train else self.test_sampling_params
             )
-            messages.append(
-                {"role": "assistant", "content": response["text"]}
-            )
 
             meta_info = response["meta_info"]
             metric["response_length"].append(meta_info["completion_tokens"])
             metric["length_clip_ratio"].append(
                 meta_info["finish_reason"]["type"] == "length"
+            )
+
+            # Current SGLang engine will generate sequence longer than 
+            # `max_new_tokens`.
+            # TODO: Check whether all configuratoin is properly set and 
+            # whether the bug has been fixed in the latest version.
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": self.tokenizer.decode(
+                        self.tokenizer.encode(
+                            response["text"], add_special_tokens=False
+                        )[:meta_info["completion_tokens"]]
+                    )
+                }
             )
 
             # Do not invoke tools in the last turn.
