@@ -146,4 +146,4 @@ If you find this library useful, please cite in the following format
 ## We are Hiring
 
 We are [Accio](https://www.accio.com/), the world's first B2B AI sourcing engine.
-Send us an [email](accio241112@gmail.com) if you are interested in opportunities in agent and reinforcement learning.
+Send us an [email](mailto:accio241112@gmail.com) if you are interested in opportunities in agent and reinforcement learning.
