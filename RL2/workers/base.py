@@ -69,6 +69,7 @@ class Worker:
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
+        # TODO: support TP
         kwargs = {
             "mesh": self.device_mesh
         }

@@ -20,6 +20,7 @@ def load_dataset(data_path):
 
 def tokenize_messages(tokenizer, messages):
 
+    # TODO: change the chat_template of QwQ and Qwen3
     states, actions, action_mask = [], [], []
     for idx, message in enumerate(messages):
 

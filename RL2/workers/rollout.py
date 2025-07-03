@@ -112,8 +112,8 @@ class Rollout(Worker):
 
             # Current SGLang engine will generate sequence longer than 
             # `max_new_tokens`.
-            # TODO: Check whether all configuratoin is properly set and 
-            # whether the bug has been fixed in the latest version.
+            # TODO: Check whether all configurations are properly set 
+            # and whether the bug has been fixed in the latest version.
             messages.append(
                 {
                     "role": "assistant",
@@ -129,6 +129,7 @@ class Rollout(Worker):
             if turn + 1 == self.config.max_turns:
                 break
 
+            # TODO: support more flexible format
             env_messages = self.env.interact(messages)
             # Terminate if no tool is invoked.
             if len(env_messages) == 0:

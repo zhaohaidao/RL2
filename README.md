@@ -34,7 +34,7 @@ pip install -e .
 ### Data
 
 Hugging Face dataset and various file types, including JSON, JSONL, CSV, Parquet, and Arrow, are accepted.
-The data should be in the following format
+The data for PPO should be in the following format
 
 ```
 [
@@ -44,6 +44,29 @@ The data should be in the following format
             {"role": "user", "content": "What is the capital of China?"}
         ],
         "answer": "Beijing"
+    }
+]
+```
+For SFT
+```
+[
+    {
+        "messages": [
+            {"role": "user", "content": "What is the capital of China?"},
+            {"role": "assistant", "content": "Beijing."}
+        ]
+    }
+]
+```
+For reward modeling and DPO
+```
+[
+    {
+        "messages": [
+            {"role": "user", "content": "What is the capital of China?"}
+        ],
+        "chosen": "Beijing.",
+        "rejected": "Shanghai."
     }
 ]
 ```
