@@ -122,6 +122,85 @@ torchrun \
     <args>
 ```
 
+## Hyper-Parameters
+
+### Data
+
+* `path`: Hugging Face name or local path of dataset.
+* `max_length`: The maximum length of a sequence.
+* `batch_size`: `batch_size` samples will be used for an update.
+* `prompts_per_rollout`: `prompts_per_rollout` prompts will be used per rollout.
+* `responses_per_prompt`: `responses_per_prompt` trajectories will be sampled for a prompt in rollout.
+
+### Actor and Critic
+
+* `model_name`: Hugging Face name or local path of model.
+* `optimizer_dir`: The directory of optimizer state to be loaded.  
+* `fsdp_size`: The model parameters will be sharded across every `fsdp_size` GPUs.
+Must be divisible by the total number of GPUs.
+Default to `0`, where a single copy of parameters is sharded across all GPUs.
+* `sp_size`: The sequence will be sharded across `sp_size` GPUs.
+Must be divisible by the total number of GPUs.
+* `gradient_checkpointing`: Whether to enable gradient checkpointing.
+* `max_length_per_device`: The maximum length allowed for a single GPU at training.
+The length of any sequence cannot exceed `sp_size * max_length_per_device`.
+* `max_inference_length_per_device`: The maximum length allowed for a single GPU at inference.
+* `update_per_rollout`: The model will be updated `update_for_rollout` times per rollout.
+* `clip`: The clipping range of logp ratio or values.
+* `lr`: The learning rate of optimizer.
+* `weight_decay`: The coefficient of L2 regularization of optimizer.
+* `max_grad_norm`: The norm of gradient will be clipped to `max_grad_norm` if it exceeds the value.
+* `warmup_ratio`: The fraction of steps to warm up the optimizer.
+* `freeze_steps`: The model will be freezed in the first `freeze_steps` steps.
+Should only be enabled for actor when `adv.estimator=gae` to warmup critic.
+* `offload_model`: Whether to offload model when not needed.
+* `offload_optimizer`: Whether to offload optimizer when not needed.
+Notice that the optimization step will still run on GPUs, which differs from Adam offloading.
+* `save_dir`: The directory of checkpoints to be saved.
+* `save_freq`: A checkpoint will be saved every `save_freq` steps.
+Default to `None`, where only a single checkpoint will be saved when the training is finished.
+* `save_optimizer`: Whether to save the optimizer.
+
+### Rollout
+
+* `tp_size`: The inference engine will be sharded across `tp_size` GPUs.
+Must be divisible by the total number of GPUs.
+* `gpu_memory_utilization`: The fraction of memory reserved for inference engine.
+* `train_sampling_params`: The sampling parameters for rollout in training.
+At least `temperature` and `max_new_tokens` should be indicated.
+* `max_turns`: The inference engine will generate at most `max_turns` times in a trajectory.
+Default to `1`, where the inference engine will only generate once and no function will be called.
+* `env_path`: The path to the Python script containing function `reward_fn` and `interact` (if `max_turns > 1`).
+
+### KL
+
+* `coef`: The coefficient of KL regularization.
+* `type`: If `reward`, the KL estimator will be added into the reward of each action; if `loss`, the KL estimator will be added into the loss of policy gradient.
+Should be set to `loss` for GRPO.
+* `reward_estimator`: The estimator used to compute KL reward.
+When `type=loss`, this will affect the value logged by wandb.
+* `loss_estimator`: The estimator used to compute KL loss.
+Should be set to `k3` for GRPO.
+
+### Adv
+
+* `estimator`: If `gae`, generalized advantage estimator (and hence critic) will be used to estimate advantage; if `reinforce`, normalized reward will be used to estimate advantage.
+We use token-level loss, so the RL algorithm will be [Dr. GRPO](https://arxiv.org/abs/2503.20783) if `norm_var=False`.
+* `gamma`: The discount factor of future rewards.
+Will only be effective when `estimator=gae`.
+* `lamda`: The coefficient to tradeoff variance and bias of generalized advantage estimator.
+Will only be effective when `estimator=gae`.
+* `norm_var`: Whether to divide advantages by the standard error.
+Will only be effective when `estimator=reinforce`.
+Should be set to `True` for GRPO.
+
+### Trainer
+
+* `project`: The name of wandb project.
+* `experiment_name`: The name of wandb experiment.
+* `n_epochs`: The dataset will be iterated through `n_epochs` times.
+* `disable_wandb`: Whether to disable wandb.
+
 ## Acknowledgement
 
 This project is built upon the basis of many remarkable projects, including but not limited to
