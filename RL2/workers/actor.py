@@ -3,7 +3,7 @@ import torch
 import torch.distributed as dist
 from liger_kernel.transformers import AutoLigerKernelForCausalLM
 from RL2.workers import Worker
-from RL2.algs import compute_logsumexp_by_chunk, compute_kl_term
+from RL2.algs import compute_logps, compute_kl_term
 from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
@@ -31,17 +31,16 @@ class Actor(Worker):
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
             use_cache=False
-        ).logits / getattr(
+        ).logits.to(torch.float32) / getattr(
             self.config, "temperature", 1.0
         )
         
-        action_logits = torch.gather(
-            logits, dim=-1, index=minibatch["actions"].unsqueeze(-1)
-        ).squeeze(-1)
-        logsumexp = compute_logsumexp_by_chunk(logits)
-        logps = (action_logits - logsumexp) * minibatch["action_mask"]
+        logps = compute_logps(
+            logits, minibatch["actions"], self.device_mesh["tp"]
+        ) * minibatch["action_mask"]
         
         if compute_entropy:
+            # TODO: How to compute entropy when using tensor parallelism?
             probs = logits.softmax(-1)
             entropy = (
                 logsumexp - (probs * logits).sum(-1)
