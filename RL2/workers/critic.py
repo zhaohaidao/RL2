@@ -3,6 +3,7 @@ import torch
 import torch.distributed as dist
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
+from RL2.utils.models import prepare_lora_model
 from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
@@ -16,8 +17,14 @@ class Critic(Worker):
         self.model = AutoModelForTokenClassification.from_pretrained(
             config.model_name,
             num_labels=1,
+            trust_remote_code=True,
             attn_implementation="flash_attention_2"
         )
+
+        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            self.model = prepare_lora_model(
+                self.model, "TOKEN_CLS", config.lora
+            )
 
         self.prepare_model_optimizer()
 

@@ -1,8 +1,9 @@
 from collections import defaultdict
 import torch
 import torch.distributed as dist
-from liger_kernel.transformers import AutoLigerKernelForCausalLM
+from transformers import AutoModelForCausalLM
 from RL2.workers import Worker
+from RL2.utils.models import prepare_lora_model
 from RL2.algs import compute_logps, compute_kl_term
 from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
@@ -14,11 +15,24 @@ class Actor(Worker):
     def __init__(self, config, train: bool):
         super().__init__(config, train)
         
-        self.model = AutoLigerKernelForCausalLM.from_pretrained(
+        if config.use_liger_kernel:
+            from liger_kernel.transformers import AutoLigerKernelForCausalLM
+            model_cls = AutoLigerKernelForCausalLM
+        else:
+            model_cls = AutoModelForCausalLM
+
+        # TODO: initialize model on meta device
+        self.model = model_cls.from_pretrained(
             config.model_name,
             torch_dtype=torch.float32 if train else torch.bfloat16,
+            trust_remote_code=True,
             attn_implementation="flash_attention_2"
         )
+
+        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            self.model = prepare_lora_model(
+                self.model, "CAUSAL_LM", config.lora
+            )
 
         self.prepare_model_optimizer()
 

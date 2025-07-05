@@ -34,13 +34,13 @@ class SFTTrainer(Trainer):
         ):
             logps = self.actor.forward(minibatch)
             loss = - logps.sum() / total_actions
-            (loss * dist.get_world_size()).backward()
+            self.actor.backward(loss)
             metrics["loss"].append(loss.item())
 
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        log(metrics, step)
+        # log(metrics, step)
 
     def train(self):
 

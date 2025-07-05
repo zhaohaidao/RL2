@@ -5,8 +5,10 @@ data:
 
 actor:
   model_name: null
+  use_liger_kernel: false
   optimizer_dir: null
-  fsdp_size: 0
+  ddp_size: 1
+  tp_size: 1
   sp_size: 1
   gradient_checkpointing: true
   max_length_per_device: null
