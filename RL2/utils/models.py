@@ -75,7 +75,7 @@ def prepare_tp_model(model, device_mesh):
     
 def prepare_dp_model(model, mixed_precision: bool, device_mesh):
 
-    kwargs = {"device_mesh": device_mesh}
+    kwargs = {"mesh": device_mesh}
     if mixed_precision:
         kwargs["mp_policy"] = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,
