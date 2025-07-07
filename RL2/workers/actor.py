@@ -1,6 +1,5 @@
 from collections import defaultdict
 import torch
-import torch.distributed as dist
 from transformers import AutoModelForCausalLM
 from RL2.workers import Worker
 from RL2.utils.models import prepare_lora_model
@@ -10,7 +9,6 @@ from RL2.algs import (
     compute_entropy,
     compute_approx_kl
 )
-from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
 
@@ -148,10 +146,7 @@ class Actor(Worker):
             grad_norm = self.optimizer_step()
 
             for k, v in metric.items():
-                v = gather_and_concat_list(v, self.device_mesh["sp"])
-                v = gather_and_concat_list(v, self.device_mesh["dp"])
-                if dist.get_rank() == 0:
-                    metrics[k].append(sum(v))
+                metrics[k].append(self.gather_and_reduce(v))
             metrics["actor/grad_norm"].append(grad_norm)
 
         self.rank0_log(metrics, step)

@@ -227,9 +227,10 @@ class Worker:
                         tensor[(multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
                     ))
                     tensors.append(tensor)
-                length = sum([len(tensor) for tensor in tensors])
-                if length % self.config.tp_size != 0:
-                    pad_tokens = self.config.tp_size - length % self.config.tp_size
+                # When using tensor parallelism, the length of minibatch must be multiple of tp size so that the sequence can be evenly sharded.
+                minibatch_length = sum([len(tensor) for tensor in tensors])
+                if minibatch_length % self.config.tp_size != 0:
+                    pad_tokens = self.config.tp_size - minibatch_length % self.config.tp_size
                     tensors.append(torch.zeros((pad_tokens), dtype=tensor.dtype))
                 minibatch[k] = torch.cat(tensors).unsqueeze(0).to(
                     torch.cuda.current_device()
@@ -384,17 +385,27 @@ class Worker:
             ]))
             wandb.log(metrics, step=step)
 
+    def gather_and_reduce(self, lst):
+
+        lst = gather_and_concat_list(lst, self.device_mesh["sp"])
+        if self.device_mesh["sp"].get_local_rank() == 0:
+            lst = gather_and_concat_list(lst, self.device_mesh["dp"])
+            if dist.get_rank() == 0:
+                return sum(lst)
+
     def rank0_log(self, metrics, step):
         
-        if dist.get_rank() == 0:
-            metrics = {
-                k: sum(v) / len(v)
-                for k, v in metrics.items()
-            }
-            tqdm.write(f"Step {step + 1}, " + ", ".join([
-                f"{k}: {v:.3g}" for k, v in metrics.items()
-            ]))
-            wandb.log(metrics, step=step)
+        if not dist.get_rank() == 0:
+            return
+        
+        metrics = {
+            k: sum(v) / len(v)
+            for k, v in metrics.items()
+        }
+        tqdm.write(f"Step {step + 1}, " + ", ".join([
+            f"{k}: {v:.3g}" for k, v in metrics.items()
+        ]))
+        wandb.log(metrics, step=step)
 
     def save(self, step=None, rm=False):
 
