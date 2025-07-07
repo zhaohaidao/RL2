@@ -30,7 +30,7 @@ class Critic(Worker):
 
     def forward(self, minibatch) -> torch.Tensor:
         update_params_of_ring_attn(
-            minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
+            minibatch["cu_seqlens"], self.data_device_mesh["sp"]
         )
 
         return self.model(

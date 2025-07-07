@@ -38,7 +38,7 @@ class Actor(Worker):
 
     def forward(self, minibatch, compute_entropy=False):
         update_params_of_ring_attn(
-            minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
+            minibatch["cu_seqlens"], self.data_device_mesh["sp"]
         )
 
         logits = self.model(
@@ -50,7 +50,7 @@ class Actor(Worker):
         )
         
         logps = compute_logps(
-            logits, minibatch["actions"], self.device_mesh["tp"]
+            logits, minibatch["actions"], self.data_device_mesh["tp"]
         ) * minibatch["action_mask"]
         
         if compute_entropy:
