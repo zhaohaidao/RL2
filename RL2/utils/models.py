@@ -1,5 +1,5 @@
 import torch
-from torch.distributed.tensor.placement_types import Shard, Replicate
+from torch.distributed.tensor.placement_types import Shard
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
     RowwiseParallel,
@@ -76,12 +76,10 @@ def prepare_qwen2_tp_critic(model, device_mesh):
         "model.embed_tokens": ColwiseParallel(
             output_layouts=Shard(1)
         ),
-        "model.norm": SequenceParallel(
-            output_layouts=Shard(1)
-        ),
+        "model.norm": SequenceParallel(),
         "dropout": SequenceParallel(),
-        "score": ColwiseParallel(
-            output_layouts=Replicate()
+        "score": RowwiseParallel(
+            input_layouts=Shard(1)
         )
     }
     parallelize_module(
