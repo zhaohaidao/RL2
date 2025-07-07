@@ -6,10 +6,12 @@ data:
   
 actor:
   model_name: null
-  optimizer_dir: null
-  fsdp_size: 0
-  sp_size: 1
+  use_liger_kernel: false
   gradient_checkpointing: true
+  ddp_size: 1
+  tp_size: 1
+  sp_size: 1
+  optimizer_dir: null
   max_length_per_device: null
   max_inference_length_per_device: ${actor.max_length_per_device}
   temperature: ${rollout.train_sampling_params.temperature}
@@ -56,7 +58,9 @@ rollout:
 
 ref_actor:
   model_name: ${actor.model_name}
-  fsdp_size: ${actor.fsdp_size}
+  use_liger_kernel: ${actor.use_liger_kernel}
+  ddp_size: ${actor.ddp_size}
+  tp_size: ${actor.tp_size}
   sp_size: ${actor.sp_size}
   max_inference_length_per_device: ${actor.max_length_per_device}
   temperature: ${rollout.train_sampling_params.temperature}
@@ -64,10 +68,11 @@ ref_actor:
 
 critic:
   model_name: ${actor.model_name}
-  optimizer_dir: null
-  fsdp_size: ${actor.fsdp_size}
-  sp_size: ${actor.sp_size}
   gradient_checkpointing: ${actor.gradient_checkpointing}
+  ddp_size: ${actor.ddp_size}
+  tp_size: ${actor.tp_size}
+  sp_size: ${actor.sp_size}
+  optimizer_dir: null
   max_length_per_device: ${actor.max_length_per_device}
   max_inference_length_per_device: ${critic.max_length_per_device}
   update_per_rollout: 12
