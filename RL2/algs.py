@@ -51,7 +51,7 @@ def compute_logsumexp(logits, device_mesh, chunk_size=1024):
     logsumexps = torch.cat([
         logsumexp.unsqueeze(-1) for logsumexp in logsumexps
     ], -1)
-    return torch.logsumexp(logsumexp, -1)
+    return torch.logsumexp(logsumexps, -1)
 
 def gather_action_logits(logits, actions, device_mesh):
 
