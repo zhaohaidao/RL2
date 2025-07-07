@@ -6,9 +6,9 @@ from RL2.workers import Worker
 from RL2.utils.models import prepare_lora_model
 from RL2.algs import (
     compute_logsumexp,
-    compute_logps,
+    gather_action_logits,
     compute_entropy,
-    compute_kl_term
+    compute_approx_kl
 )
 from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
@@ -43,7 +43,7 @@ class Actor(Worker):
 
         self.prepare_model_optimizer()
 
-    def forward(self, minibatch, compute_entropy=False):
+    def forward(self, minibatch, return_entropy=False):
         update_params_of_ring_attn(
             minibatch["cu_seqlens"], self.data_device_mesh["sp"]
         )
@@ -57,14 +57,14 @@ class Actor(Worker):
         )
         
         logsumexp = compute_logsumexp(logits, self.data_device_mesh["tp"])
-        logps = compute_logps(
+        action_logits = gather_action_logits(
             logits,
             minibatch["actions"],
-            logsumexp,
             self.data_device_mesh["tp"]
-        ) * minibatch["action_mask"]
+        )
+        logps = (action_logits - logsumexp) * minibatch["action_mask"]
         
-        if compute_entropy:
+        if return_entropy:
             entropy = compute_entropy(
                 logits, logsumexp, self.data_device_mesh["tp"]
             ) * minibatch["action_mask"]
@@ -111,7 +111,7 @@ class Actor(Worker):
             metric = defaultdict(list)
             for minibatch in batch:
 
-                logps, entropy = self.forward(minibatch, True)
+                logps, entropy = self.forward(minibatch, return_entropy=True)
                 if update == 0:
                     loss = - (minibatch["advantages"] * logps).sum() / total_actions
                     clip_ratio = torch.zeros_like(loss)
@@ -131,7 +131,7 @@ class Actor(Worker):
                 loss = loss + self.config.entropy.coef * entropy_loss
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":
-                    kl_loss = compute_kl_term(
+                    kl_loss = compute_approx_kl(
                         logps,
                         minibatch["ref_logps"],
                         self.config.kl.loss_estimator

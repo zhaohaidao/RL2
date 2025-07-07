@@ -7,7 +7,7 @@ from RL2.trainer import Trainer
 from RL2.dataset import RLDataset
 from RL2.workers import Actor, Rollout, Critic
 from RL2.algs import (
-    compute_kl_term,
+    compute_approx_kl,
     compute_gae,
     compute_reinforce_adv
 )
@@ -51,7 +51,7 @@ class PPOTrainer(Trainer):
         
         kl = 0
         for ex in data_list:
-            kl_term = compute_kl_term(
+            kl_term = compute_approx_kl(
                 ex["old_logps"],
                 ex["ref_logps"],
                 self.config.actor.kl.reward_estimator
