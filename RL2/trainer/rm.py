@@ -37,7 +37,7 @@ class RMTrainer(Trainer):
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 rewards,
                 minibatch["cu_seqlens"],
-                self.critic.data_device_mesh["sp"]
+                self.critic.device_mesh["sp"]
             ).view(-1, 2).T
             reward_margins = chosen_rewards - rejected_rewards
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size

@@ -35,7 +35,7 @@ class Worker:
         assert world_size % (config.sp_size * config.tp_size) == 0, \
             f"World_size {world_size} must be divisible by sp_size {config.sp_size} * tp_size {config.tp_size}."
         self.dp_size = world_size // (config.sp_size * config.tp_size)
-        self.data_device_mesh = dist.device_mesh.init_device_mesh(
+        self.device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("dp", "sp", "tp"),
             mesh_shape=(self.dp_size, config.sp_size, config.tp_size)
@@ -118,7 +118,7 @@ class Worker:
             # the length of each sequence needs to be multiple of 2 * 
             # sp size and each rank sequentially get the head and tail.
             # See https://zhuanlan.zhihu.com/p/683714620.
-            multiple_of = 2 * self.data_device_mesh["sp"].size()
+            multiple_of = 2 * self.device_mesh["sp"].size()
             for ex in data_list:
                 if len(ex["states"]) % multiple_of == 0:
                     continue
@@ -136,7 +136,7 @@ class Worker:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(-1).flatten().tolist()
             max_length_per_dp = (
-                self.data_device_mesh["sp"].size() * (
+                self.device_mesh["sp"].size() * (
                     self.config.max_length_per_device
                     if torch.is_grad_enabled()
                     else self.config.max_inference_length_per_device
@@ -151,7 +151,7 @@ class Worker:
 
             # Every dp should has identical number of minibatches, thus the 
             # total number of minibatches must be a multiple of dp size.
-            multiple_of = self.data_device_mesh["dp"].size()
+            multiple_of = self.device_mesh["dp"].size()
             if n_minibatches % multiple_of != 0:
                 n_minibatches += (multiple_of - n_minibatches % multiple_of)
 
@@ -160,7 +160,7 @@ class Worker:
                 # it may be larger than the number of trajectories so that
                 # there are not enough trajectories to fill all minibatches.
                 self.padding_trajectories = n_minibatches - len(seq_len_list)
-                trajectory_length = 2 * self.data_device_mesh["sp"].size()
+                trajectory_length = 2 * self.device_mesh["sp"].size()
                 trajectory = {
                     k: torch.zeros((trajectory_length), dtype=v.dtype)
                     for k, v in data_list[0].items()
@@ -181,8 +181,8 @@ class Worker:
                 ])
                 if max_minibatch_length <= max_length_per_dp:
                     break
-                n_minibatches += self.data_device_mesh["dp"].size()
-            n_minibatches_per_dp = n_minibatches // self.data_device_mesh["dp"].size()
+                n_minibatches += self.device_mesh["dp"].size()
+            n_minibatches_per_dp = n_minibatches // self.device_mesh["dp"].size()
 
             if pair:
                 partitions = [
@@ -198,9 +198,9 @@ class Worker:
                     [data_list[p] for p in partition]
                     for partition in partitions[rank * n_minibatches_per_dp:(rank + 1) * n_minibatches_per_dp]
                 ]
-                for rank in range(self.data_device_mesh["dp"].size())
+                for rank in range(self.device_mesh["dp"].size())
                 for _ in range(
-                    self.data_device_mesh["sp", "tp"].size()
+                    self.device_mesh["sp", "tp"].size()
                 )
             ]
         
@@ -208,8 +208,8 @@ class Worker:
             data_lists if dist.get_rank() == 0 else None,
         )[0]
         
-        rank = self.data_device_mesh["sp"].get_local_rank()
-        multiple_of = 2 * self.data_device_mesh["sp"].size()
+        rank = self.device_mesh["sp"].get_local_rank()
+        multiple_of = 2 * self.device_mesh["sp"].size()
         minibatches = []
         for data in data_list:
             minibatch = {}
@@ -258,12 +258,12 @@ class Worker:
                     tensor = v.squeeze(0)[start_idx:end_idx]
                     tensors = [
                         torch.zeros_like(tensor)
-                        for _ in range(self.data_device_mesh["sp"].size())
+                        for _ in range(self.device_mesh["sp"].size())
                     ]
                     dist.gather(
                         tensor,
-                        tensors if self.data_device_mesh["sp"].get_local_rank() == 0 else None,
-                        group=self.data_device_mesh["sp"].get_group(),
+                        tensors if self.device_mesh["sp"].get_local_rank() == 0 else None,
+                        group=self.device_mesh["sp"].get_group(),
                         group_dst=0
                     )
                     # Devices with non-zero sp rank will process zero tensors.
@@ -284,9 +284,9 @@ class Worker:
                 }
                 data_list.append(ex)
         
-        if self.data_device_mesh["sp"].get_local_rank() == 0 and self.data_device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["sp"].get_local_rank() == 0 and self.device_mesh["tp"].get_local_rank() == 0:
             shuffled_data_list = gather_and_concat_list(
-                data_list, self.data_device_mesh["dp"]
+                data_list, self.device_mesh["dp"]
             )
             if dist.get_rank() == 0:
                 data_list = len(shuffled_data_list) * [None]
@@ -307,12 +307,12 @@ class Worker:
         dist.all_reduce(
             total_actions,
             op=dist.ReduceOp.SUM,
-            group=self.data_device_mesh["sp"].get_group()
+            group=self.device_mesh["sp"].get_group()
         )
         dist.all_reduce(
             total_actions,
             op=dist.ReduceOp.SUM,
-            group=self.data_device_mesh["dp"].get_group()
+            group=self.device_mesh["dp"].get_group()
         )
         return total_actions.to("cpu").item()
     
@@ -370,7 +370,7 @@ class Worker:
     def gather_and_log(self, metrics, step):
 
         metrics = {
-            k: gather_and_concat_list(v, self.data_device_mesh["dp"])
+            k: gather_and_concat_list(v, self.device_mesh["dp"])
             for k, v in metrics.items()
         }
 

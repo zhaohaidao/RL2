@@ -45,7 +45,7 @@ class Actor(Worker):
 
     def forward(self, minibatch, return_entropy=False):
         update_params_of_ring_attn(
-            minibatch["cu_seqlens"], self.data_device_mesh["sp"]
+            minibatch["cu_seqlens"], self.device_mesh["sp"]
         )
 
         logits = self.model(
@@ -56,17 +56,17 @@ class Actor(Worker):
             self.config, "temperature", 1.0
         )
         
-        logsumexp = compute_logsumexp(logits, self.data_device_mesh["tp"])
+        logsumexp = compute_logsumexp(logits, self.device_mesh["tp"])
         action_logits = gather_action_logits(
             logits,
             minibatch["actions"],
-            self.data_device_mesh["tp"]
+            self.device_mesh["tp"]
         )
         logps = (action_logits - logsumexp) * minibatch["action_mask"]
         
         if return_entropy:
             entropy = compute_entropy(
-                logits, logsumexp, self.data_device_mesh["tp"]
+                logits, logsumexp, self.device_mesh["tp"]
             ) * minibatch["action_mask"]
             return logps, entropy
         else:
@@ -148,8 +148,8 @@ class Actor(Worker):
             grad_norm = self.optimizer_step()
 
             for k, v in metric.items():
-                v = gather_and_concat_list(v, self.data_device_mesh["sp"])
-                v = gather_and_concat_list(v, self.data_device_mesh["dp"])
+                v = gather_and_concat_list(v, self.device_mesh["sp"])
+                v = gather_and_concat_list(v, self.device_mesh["dp"])
                 if dist.get_rank() == 0:
                     metrics[k].append(sum(v))
             metrics["actor/grad_norm"].append(grad_norm)

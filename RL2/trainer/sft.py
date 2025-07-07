@@ -35,7 +35,7 @@ class SFTTrainer(Trainer):
         ):
             logps = self.actor.forward(minibatch)
             seq_logps = sequence_all_reduce(
-                logps, minibatch["cu_seqlens"], self.actor.data_device_mesh["sp"]
+                logps, minibatch["cu_seqlens"], self.actor.device_mesh["sp"]
             )
             loss = - seq_logps.sum() / total_actions
             self.actor.backward(loss)

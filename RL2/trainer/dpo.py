@@ -38,7 +38,7 @@ class DPOTrainer(Trainer):
             chosen_rewards, rejected_rewards = sequence_all_reduce(
                 self.config.actor.beta * (logps - minibatch["ref_logps"]),
                 minibatch["cu_seqlens"],
-                self.actor.data_device_mesh["sp"]
+                self.actor.device_mesh["sp"]
             ).view(-1, 2).T
             reward_margins = chosen_rewards - rejected_rewards
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
