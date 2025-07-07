@@ -1,5 +1,5 @@
 import torch
-from torch.distributed.tensor.placement_types import Shard
+from torch.distributed.tensor.placement_types import Shard, Replicated
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
     RowwiseParallel,
@@ -7,7 +7,10 @@ from torch.distributed.tensor.parallel import (
     parallelize_module
 )
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
-from transformers import Qwen2ForCausalLM
+from transformers import (
+    Qwen2ForCausalLM,
+    Qwen2ForTokenClassification
+)
 
 def prepare_lora_model(model, task_type: str, config):
 
@@ -23,31 +26,34 @@ def prepare_lora_model(model, task_type: str, config):
     )
     return get_peft_model(model, lora_config)
 
-def prepare_qwen2_tp_model(model, device_mesh):
-    # TODO: support classification model
-    for layer in model.model.layers:
+def prepare_qwen2_tp_layer(layer, device_mesh):
 
-        parallelize_plan = {
-            "input_layernorm": SequenceParallel(),
-            "self_attn.q_proj": ColwiseParallel(),
-            "self_attn.k_proj": ColwiseParallel(),
-            "self_attn.v_proj": ColwiseParallel(),
-            "self_attn.o_proj": RowwiseParallel(
-                output_layouts=Shard(1)
-            ),
-            "post_attention_layernorm": SequenceParallel(),
-            "mlp.gate_proj": ColwiseParallel(),
-            "mlp.up_proj": ColwiseParallel(),
-            "mlp.down_proj": RowwiseParallel(
-                output_layouts=Shard(1)
-            )
-        }
-        parallelize_module(
-            module=layer,
-            device_mesh=device_mesh,
-            parallelize_plan=parallelize_plan
+    parallelize_plan = {
+        "input_layernorm": SequenceParallel(),
+        "self_attn.q_proj": ColwiseParallel(),
+        "self_attn.k_proj": ColwiseParallel(),
+        "self_attn.v_proj": ColwiseParallel(),
+        "self_attn.o_proj": RowwiseParallel(
+            output_layouts=Shard(1)
+        ),
+        "post_attention_layernorm": SequenceParallel(),
+        "mlp.gate_proj": ColwiseParallel(),
+        "mlp.up_proj": ColwiseParallel(),
+        "mlp.down_proj": RowwiseParallel(
+            output_layouts=Shard(1)
         )
+    }
+    parallelize_module(
+        module=layer,
+        device_mesh=device_mesh,
+        parallelize_plan=parallelize_plan
+    )
 
+def prepare_qwen2_tp_actor(model, device_mesh):
+
+    for layer in model.model.layers:
+        prepare_qwen2_tp_layer(layer, device_mesh)
+        
     parallelize_plan = {
         "model.embed_tokens": ColwiseParallel(
             output_layouts=Shard(1)
@@ -61,13 +67,38 @@ def prepare_qwen2_tp_model(model, device_mesh):
         parallelize_plan=parallelize_plan
     )
 
+def prepare_qwen2_tp_critic(model, device_mesh):
+
+    for layer in model.model.layers:
+        prepare_qwen2_tp_layer(layer, device_mesh)
+
+    parallelize_plan = {
+        "model.embed_tokens": ColwiseParallel(
+            output_layouts=Shard(1)
+        ),
+        "model.norm": SequenceParallel(
+            output_layouts=Shard(1)
+        ),
+        "dropout": SequenceParallel(),
+        "score": ColwiseParallel(
+            output_layouts=Replicated()
+        )
+    }
+    parallelize_module(
+        module=model,
+        device_mesh=device_mesh,
+        parallelize_plan=parallelize_plan
+    )
+
 def prepare_tp_model(model, device_mesh):
 
     assert model.config.num_key_value_heads % device_mesh.size() == 0, \
         f"Key and value heads {model.config.num_key_value_heads} must be divisible by tensor parallelism size {device_mesh.size()}."
 
     if isinstance(model, Qwen2ForCausalLM):
-        prepare_qwen2_tp_model(model, device_mesh)
+        prepare_qwen2_tp_actor(model, device_mesh)
+    elif isinstance(model, Qwen2ForTokenClassification):
+        prepare_qwen2_tp_critic(model, device_mesh)
     else:
         raise NotImplementedError(
             f"Tensor parallelism is not supported for {model.__class__.__name__}."
