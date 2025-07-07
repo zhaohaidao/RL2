@@ -136,7 +136,7 @@ class Worker:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(-1).flatten().tolist()
             max_length_per_dp = (
-                self.device_mesh["sp"].size() * (
+                self.config.sp_size * self.config.tp_size * (
                     self.config.max_length_per_device
                     if torch.is_grad_enabled()
                     else self.config.max_inference_length_per_device
