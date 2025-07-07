@@ -53,7 +53,7 @@ class DPOTrainer(Trainer):
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.actor.log(metrics, step)
+        self.actor.gather_and_log(metrics, step)
 
     def train(self):
 

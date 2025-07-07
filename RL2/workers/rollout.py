@@ -184,7 +184,7 @@ class Rollout(Worker):
                 f"{k}/{suffix}": sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()
             }
-            self.log(metrics, step)
+            self.gather_and_log(metrics, step)
 
             if not train:
                 return

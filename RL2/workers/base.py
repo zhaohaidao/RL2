@@ -367,7 +367,7 @@ class Worker:
             **kwargs
         )
 
-    def log(self, metrics, step):
+    def gather_and_log(self, metrics, step):
 
         metrics = {
             k: gather_and_concat_list(v, self.data_device_mesh["dp"])

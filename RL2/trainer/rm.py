@@ -48,7 +48,7 @@ class RMTrainer(Trainer):
         grad_norm = self.critic.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        self.critic.log(metrics, step)
+        self.critic.gather_and_log(metrics, step)
 
     def train(self):
 
