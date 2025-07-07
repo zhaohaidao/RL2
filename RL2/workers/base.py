@@ -301,13 +301,18 @@ class Worker:
         dist.all_reduce(
             total_actions,
             op=dist.ReduceOp.SUM,
-            group=self.data_device_mesh["dp", "sp"].get_group()
+            group=self.data_device_mesh["sp"].get_group()
+        )
+        dist.all_reduce(
+            total_actions,
+            op=dist.ReduceOp.SUM,
+            group=self.data_device_mesh["dp"].get_group()
         )
         return total_actions.to("cpu").item()
     
     def backward(self, loss):
         # https://github.com/ChenmienTan/RL2/issues/11
-        (self.data_device_mesh["dp", "sp"].size() * loss).backward()
+        (self.dp_size * self.config.sp_size * loss).backward()
     
     def optimizer_step(self):
 
