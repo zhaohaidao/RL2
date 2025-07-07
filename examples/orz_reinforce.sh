@@ -6,6 +6,7 @@ torchrun \
     data.prompts_per_rollout=128 \
     data.responses_per_prompt=64 \
     actor.model_name=Qwen/Qwen2.5-7B \
+    actor.use_liger_kernel=true \
     actor.max_length_per_device=16384 \
     actor.save_freq=32 \
     rollout.train_sampling_params.max_new_tokens=8192 \
