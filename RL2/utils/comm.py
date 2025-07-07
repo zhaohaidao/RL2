@@ -3,8 +3,6 @@ import math
 from datetime import timedelta
 import torch
 import torch.distributed as dist
-from tqdm import tqdm
-import wandb
 
 def initialize_global_process_group(timeout_second=36000):
     
@@ -71,20 +69,3 @@ def gather_and_concat_list(lst, device_mesh=None):
     )
 
     return sum(lists, []) if is_dst else None
-
-def log(metrics, step, device_mesh=None):
-
-    metrics = {
-        k: gather_and_concat_list(v, device_mesh)
-        for k, v in metrics.items()
-    }
-    
-    if dist.get_rank() == 0:
-        metrics = {
-            k: sum(v) / (1.0 if k == "loss" else len(v))
-            for k, v in metrics.items()
-        }
-        tqdm.write(f"Step {step + 1}, " + ", ".join([
-            f"{k}: {v:.3g}" for k, v in metrics.items()
-        ]))
-        wandb.log(metrics, step=step)

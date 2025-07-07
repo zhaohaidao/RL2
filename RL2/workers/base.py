@@ -25,20 +25,20 @@ class Worker:
         world_size = dist.get_world_size()
         assert world_size % (config.ddp_size * config.tp_size) == 0, \
             f"World_size {world_size} must be divisible by ddp_size {config.ddp_size} * tp_size {config.tp_size}."
-        fsdp_size = world_size // (config.ddp_size * config.tp_size)
+        self.fsdp_size = world_size // (config.ddp_size * config.tp_size)
         self.model_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("ddp", "fsdp", "tp"),
-            mesh_shape=(config.ddp_size, fsdp_size, config.tp_size)
+            mesh_shape=(config.ddp_size, self.fsdp_size, config.tp_size)
         )
 
         assert world_size % (config.sp_size * config.tp_size) == 0, \
             f"World_size {world_size} must be divisible by sp_size {config.sp_size} * tp_size {config.tp_size}."
-        dp_size = world_size // (config.sp_size * config.tp_size)
+        self.dp_size = world_size // (config.sp_size * config.tp_size)
         self.data_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("dp", "sp", "tp"),
-            mesh_shape=(dp_size, config.sp_size, config.tp_size)
+            mesh_shape=(self.dp_size, config.sp_size, config.tp_size)
         )
 
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -227,6 +227,10 @@ class Worker:
                         tensor[(multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
                     ))
                     tensors.append(tensor)
+                length = sum([len(tensor) for tensor in tensors])
+                if length % self.config.tp_size != 0:
+                    pad_tokens = self.config.tp_size - length % self.config.tp_size
+                    tensors.append(torch.zeros((pad_tokens), dtype=tensor.dtype))
                 minibatch[k] = torch.cat(tensors).unsqueeze(0).to(
                     torch.cuda.current_device()
                 )
@@ -273,6 +277,8 @@ class Worker:
                     )).to("cpu")
 
                 length = torch.argmax(ex["position_ids"]).item()
+                if length == 0:
+                    continue
                 ex = {
                     k: v[:length + 1] for k, v in ex.items()
                 }
@@ -360,6 +366,23 @@ class Worker:
             disable=(dist.get_rank() != 0),
             **kwargs
         )
+
+    def log(self, metrics, step):
+
+        metrics = {
+            k: gather_and_concat_list(v, self.data_device_mesh["dp"])
+            for k, v in metrics.items()
+        }
+
+        if dist.get_rank() == 0:
+            metrics = {
+                k: sum(v) / (1.0 if k == "loss" else len(v))
+                for k, v in metrics.items()
+            }
+            tqdm.write(f"Step {step + 1}, " + ", ".join([
+                f"{k}: {v:.3g}" for k, v in metrics.items()
+            ]))
+            wandb.log(metrics, step=step)
 
     def rank0_log(self, metrics, step):
         

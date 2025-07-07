@@ -16,6 +16,8 @@ class Actor(Worker):
         super().__init__(config, train)
         
         if config.use_liger_kernel:
+            assert config.tp_size == 1, \
+                "Liger kernel is not compatible with tensor parallelism."
             from liger_kernel.transformers import AutoLigerKernelForCausalLM
             model_cls = AutoLigerKernelForCausalLM
         else:

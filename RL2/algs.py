@@ -78,13 +78,12 @@ def compute_logps(logits, actions, device_mesh):
 
     return action_logits - logsumexp
 
-def sequence_all_reduce(batch, values, device_mesh):
+def sequence_all_reduce(values, cu_seqlens, device_mesh):
     # When using sequence parallelism, tokens are distributed 
     # across multiple devices, while it may require the sum 
-    # of logps of all tokens to compute the loss in DPO.
+    # of logps of all tokens to compute the loss.
     # We firstly compute the sum of logps, despite that the 
     # sum is not involved in the computation graph.
-    cu_seqlens = batch["cu_seqlens"]
     values = torch.stack([
         values[:, start_idx:end_idx].sum()
         for start_idx, end_idx
