@@ -16,7 +16,7 @@ import wandb
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
 from RL2.algs import compute_baseline
-from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list, log
+from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
 from RL2.utils.timing import time_logger
 
 
@@ -34,10 +34,7 @@ class Rollout(Worker):
             )
         )
 
-        # Multi-node inference is not supported yet. We consider that 
-        # FSDP suffers inferior efficiency for 100B+ models. If your 
-        # model is smaller than 100B, then you probably should not use
-        # multi-node inference for the maximal throughput.
+        # TODO: support multi-node inference.
         self.prepare_environment_variables()
         if self.device_mesh["tp"].get_local_rank() == 0:
             
@@ -188,7 +185,7 @@ class Rollout(Worker):
                 f"{k}/{suffix}": sum([metric[k] for metric in metrics], [])
                 for k in metrics[0].keys()
             }
-            log(metrics, step, self.device_mesh["dp"])
+            self.gather_and_log(metrics, step)
 
             if not train:
                 return

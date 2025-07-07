@@ -1,10 +1,14 @@
 from collections import defaultdict
 import torch
-import torch.distributed as dist
-from liger_kernel.transformers import AutoLigerKernelForCausalLM
+from transformers import AutoModelForCausalLM
 from RL2.workers import Worker
-from RL2.algs import compute_logsumexp_by_chunk, compute_kl_term
-from RL2.utils.comm import gather_and_concat_list
+from RL2.utils.models import prepare_lora_model
+from RL2.algs import (
+    compute_logsumexp,
+    gather_action_logits,
+    compute_entropy,
+    compute_approx_kl
+)
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
 
@@ -14,37 +18,53 @@ class Actor(Worker):
     def __init__(self, config, train: bool):
         super().__init__(config, train)
         
-        self.model = AutoLigerKernelForCausalLM.from_pretrained(
+        if config.use_liger_kernel:
+            assert config.tp_size == 1, \
+                "Liger kernel is not compatible with tensor parallelism."
+            from liger_kernel.transformers import AutoLigerKernelForCausalLM
+            model_cls = AutoLigerKernelForCausalLM
+        else:
+            model_cls = AutoModelForCausalLM
+
+        # TODO: initialize model on meta device
+        self.model = model_cls.from_pretrained(
             config.model_name,
             torch_dtype=torch.float32 if train else torch.bfloat16,
+            trust_remote_code=True,
             attn_implementation="flash_attention_2"
         )
 
+        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            self.model = prepare_lora_model(
+                self.model, "CAUSAL_LM", config.lora
+            )
+
         self.prepare_model_optimizer()
 
-    def forward(self, minibatch, compute_entropy=False):
+    def forward(self, minibatch, return_entropy=False):
         update_params_of_ring_attn(
-            minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
+            minibatch["cu_seqlens"], self.device_mesh["sp"]
         )
 
         logits = self.model(
             input_ids=minibatch["states"],
             position_ids=minibatch["position_ids"],
             use_cache=False
-        ).logits / getattr(
+        ).logits.to(torch.float32) / getattr(
             self.config, "temperature", 1.0
         )
         
-        action_logits = torch.gather(
-            logits, dim=-1, index=minibatch["actions"].unsqueeze(-1)
-        ).squeeze(-1)
-        logsumexp = compute_logsumexp_by_chunk(logits)
+        logsumexp = compute_logsumexp(logits, self.device_mesh["tp"])
+        action_logits = gather_action_logits(
+            logits,
+            minibatch["actions"],
+            self.device_mesh["tp"]
+        )
         logps = (action_logits - logsumexp) * minibatch["action_mask"]
         
-        if compute_entropy:
-            probs = logits.softmax(-1)
-            entropy = (
-                logsumexp - (probs * logits).sum(-1)
+        if return_entropy:
+            entropy = compute_entropy(
+                logits, logsumexp, self.device_mesh["tp"]
             ) * minibatch["action_mask"]
             return logps, entropy
         else:
@@ -89,7 +109,7 @@ class Actor(Worker):
             metric = defaultdict(list)
             for minibatch in batch:
 
-                logps, entropy = self.forward(minibatch, True)
+                logps, entropy = self.forward(minibatch, return_entropy=True)
                 if update == 0:
                     loss = - (minibatch["advantages"] * logps).sum() / total_actions
                     clip_ratio = torch.zeros_like(loss)
@@ -109,14 +129,14 @@ class Actor(Worker):
                 loss = loss + self.config.entropy.coef * entropy_loss
 
                 if self.config.kl.coef > 0 and self.config.kl.type == "loss":
-                    kl_loss = compute_kl_term(
+                    kl_loss = compute_approx_kl(
                         logps,
                         minibatch["ref_logps"],
                         self.config.kl.loss_estimator
                     ).sum() / total_actions
                     loss = loss + self.config.kl.coef * kl_loss
 
-                (loss * dist.get_world_size()).backward() 
+                self.backward(loss)
 
                 tbar.update()
                 metric["actor/entropy_loss"].append(entropy_loss.item())
@@ -126,9 +146,7 @@ class Actor(Worker):
             grad_norm = self.optimizer_step()
 
             for k, v in metric.items():
-                v = gather_and_concat_list(v)
-                if dist.get_rank() == 0:
-                    metrics[k].append(sum(v))
+                metrics[k].append(self.gather_and_reduce(v))
             metrics["actor/grad_norm"].append(grad_norm)
 
         self.rank0_log(metrics, step)

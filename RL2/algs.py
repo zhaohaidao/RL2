@@ -2,40 +2,107 @@ import torch
 import torch.distributed as dist
 from torch.nn.utils.rnn import pad_sequence
 
-def compute_logsumexp_by_chunk(logits, chunk_size=1024):
-    
-    logsumexp = []
-    for start in range(0, logits.shape[1], chunk_size):
-        logsumexp.append(
-            logits[:, start:start + chunk_size].logsumexp(-1)
-        )
-    return torch.cat(logsumexp, -1)
+def differentiable_all_reduce(tensor, device_mesh):
 
-def sequence_all_reduce(batch, values, device_mesh):
-    # When using sequence parallelism, tokens are distributed 
-    # across multiple devices, while it may require the sum 
-    # of logps of all tokens to compute the loss in DPO.
-    # We firstly compute the sum of logps, despite that the 
-    # sum is not involved in the computation graph.
-    cu_seqlens = batch["cu_seqlens"]
-    partial_values = torch.stack([
-        values[:, start_idx:end_idx].sum()
-        for start_idx, end_idx
-        in zip(cu_seqlens[:-1], cu_seqlens[1:])
-    ])
-    values = partial_values.detach()
+    detached_tensor = tensor.detach()
     dist.all_reduce(
-        values,
+        detached_tensor,
         op=dist.ReduceOp.SUM,
         group=device_mesh.get_group()
     )
-    # Then, we keep the sum unchanged and let it involve in the
-    # computation graph of the corresponding device.
-    # All SP ranks will share identical loss, while they will 
-    # perform backpropagation on their respective tokens.
-    return values + partial_values - partial_values.detach()
+    return tensor + detached_tensor - tensor.detach()
 
-def compute_kl_term(
+def sequence_all_reduce(tensor, cu_seqlens, device_mesh):
+
+    tensor = torch.stack([
+        tensor[:, start_idx:end_idx].sum()
+        for start_idx, end_idx
+        in zip(cu_seqlens[:-1], cu_seqlens[1:])
+    ])
+    return differentiable_all_reduce(tensor, device_mesh)
+
+def compute_logsumexp(logits, device_mesh, chunk_size=1024):
+
+    # When using tensor parallelism, each device only has a shard of logits.
+    # We firstly compute logsumexp of the sharded logits on each device,
+    # and then perform logsumexp across devices, which is equivalent to 
+    # performing logsumexp over the entire vocabulary.
+
+    # Direct logsumexp over the entire sequence suffer high memory peak.
+    # See https://github.com/OpenRLHF/OpenRLHF/pull/718#issuecomment-2641081881
+    logsumexps = []
+    for start in range(0, logits.shape[1], chunk_size):
+        logsumexp = torch.logsumexp(
+            logits[:, start:start + chunk_size], -1
+        )
+        logsumexps.append(logsumexp)
+    logsumexp = torch.cat(logsumexps, -1)
+
+    logsumexps = [
+        torch.zeros_like(logsumexp)
+        for _ in range(device_mesh.size())
+    ]
+    dist.all_gather(
+        logsumexps,
+        logsumexp,
+        group=device_mesh.get_group()
+    )
+    logsumexps[device_mesh.get_local_rank()] = logsumexp # necessary to retain grad
+    logsumexps = torch.cat([
+        logsumexp.unsqueeze(-1) for logsumexp in logsumexps
+    ], -1)
+    return torch.logsumexp(logsumexp, -1)
+
+def gather_action_logits(logits, actions, device_mesh):
+
+    # When using tensor parallelism, each device only has a shard of logits.
+    # On each device, we gather logits for actions on the device, and then 
+    # perform AllReduce to collect the complete logits.
+    rank = device_mesh.get_local_rank()
+
+    local_vocab_size = torch.LongTensor(
+        [logits.shape[-1]]
+    ).to(torch.cuda.current_device())
+    vocab_sizes = [
+        torch.zeros_like(local_vocab_size)
+        for _ in range(device_mesh.size())
+    ]
+    dist.all_gather(
+        vocab_sizes,
+        local_vocab_size,
+        group=device_mesh.get_group()
+    )
+    cu_vocab_sizes = torch.cumsum(
+        torch.cat(
+            [torch.zeros_like(local_vocab_size)] + vocab_sizes
+        ), 0
+    )
+    action_device_mapping = (
+        actions < cu_vocab_sizes[1:].unsqueeze(-1)
+    ).to(torch.float32).argmax(0)
+    local_action_indices = torch.where(
+        action_device_mapping == rank
+    )[0]
+    local_actions = actions[:, local_action_indices] - cu_vocab_sizes[rank]
+    action_logits = torch.zeros(
+        actions.shape, device=torch.cuda.current_device()
+    )
+    action_logits[:, local_action_indices] = torch.gather(
+        logits[:, local_action_indices],
+        dim=-1,
+        index=local_actions.unsqueeze(-1)
+    ).squeeze(-1)
+
+    return differentiable_all_reduce(action_logits, device_mesh)
+
+def compute_entropy(logits, logsumexp, device_mesh):
+
+    probs = torch.exp(logits - logsumexp.unsqueeze(-1))
+    return logsumexp - differentiable_all_reduce(
+        (probs * logits).sum(-1), device_mesh
+    )
+
+def compute_approx_kl(
     logps: torch.Tensor,
     ref_logps: torch.Tensor,
     estimator: str
@@ -43,13 +110,13 @@ def compute_kl_term(
     # The (ref_)logps of non-action tokens are zero (see `Actor.
     # forward`), so their corresponding kl_term will also be zero.
 
-    logp_diffs = logps - ref_logps
+    log_ratio = logps - ref_logps
     if estimator == "k1":
-        return logp_diffs
+        return log_ratio
     elif estimator == "k2":
-        return logp_diffs.pow(2) / 2
+        return log_ratio.pow(2) / 2
     elif estimator == "k3":
-        return logp_diffs + torch.exp(- logp_diffs) - 1
+        return log_ratio + torch.exp(- log_ratio) - 1
     else:
         raise NotImplementedError
 

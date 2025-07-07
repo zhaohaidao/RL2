@@ -5,10 +5,11 @@ data:
 
 critic:
   model_name: null
-  optimizer_dir: null
-  fsdp_size: 0
-  sp_size: 1
   gradient_checkpointing: true
+  ddp_size: 1
+  tp_size: 1
+  sp_size: 1
+  optimizer_dir: null
   max_length_per_device: null
   lr: 1e-5
   weight_decay: 1e-2

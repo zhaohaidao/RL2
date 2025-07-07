@@ -1,9 +1,8 @@
 from collections import defaultdict
 import torch
-import torch.distributed as dist
 from transformers import AutoModelForTokenClassification
 from RL2.workers import Worker
-from RL2.utils.comm import gather_and_concat_list
+from RL2.utils.models import prepare_lora_model
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
 
@@ -16,14 +15,20 @@ class Critic(Worker):
         self.model = AutoModelForTokenClassification.from_pretrained(
             config.model_name,
             num_labels=1,
+            trust_remote_code=True,
             attn_implementation="flash_attention_2"
         )
+
+        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            self.model = prepare_lora_model(
+                self.model, "TOKEN_CLS", config.lora
+            )
 
         self.prepare_model_optimizer()
 
     def forward(self, minibatch) -> torch.Tensor:
         update_params_of_ring_attn(
-            minibatch["cu_seqlens"], self.sp_device_mesh["sp"]
+            minibatch["cu_seqlens"], self.device_mesh["sp"]
         )
 
         return self.model(
@@ -73,7 +78,7 @@ class Critic(Worker):
                 loss = torch.max(mse, clipped_mse).sum() / total_actions
                 clip_ratio = (mse < clipped_mse).sum() / total_actions
                 
-                (loss * dist.get_world_size()).backward()
+                self.backward(loss)
 
                 tbar.update()
                 metric["critic/loss"].append(loss.item())
@@ -82,10 +87,8 @@ class Critic(Worker):
             grad_norm = self.optimizer_step()
             
             for k, v in metric.items():
-                v = gather_and_concat_list(v)
-                if dist.get_rank() == 0:
-                    metrics[k].append(sum(v))
-            metrics["actor/grad_norm"].append(grad_norm)
+                metrics[k].append(self.gather_and_reduce(v))
+            metrics["critic/grad_norm"].append(grad_norm)
 
         self.rank0_log(metrics, step)
         if self.config.save_freq is not None and (step + 1) % self.config.save_freq == 0:

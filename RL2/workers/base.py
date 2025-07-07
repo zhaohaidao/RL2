@@ -4,14 +4,13 @@ import math
 import torch
 from torch.nn.utils import clip_grad_norm_
 import torch.distributed as dist
-from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions, get_model_state_dict
 )
 import transformers
-from peft import LoraConfig, get_peft_model
 import wandb
 from tqdm import tqdm
+from RL2.utils.models import prepare_tp_model, prepare_dp_model
 from RL2.utils.seqlen_balance import get_seqlen_balanced_partitions
 from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
         
@@ -23,68 +22,40 @@ class Worker:
         self.config = config
         self.train = train
 
-        if config.fsdp_size > 0:
-            self.device_mesh = dist.device_mesh.init_device_mesh(
-                "cuda",
-                mesh_dim_names=("ddp", "fsdp"),
-                mesh_shape=(
-                    dist.get_world_size() // config.fsdp_size,
-                    config.fsdp_size
-                )
-            )
-        else:
-            self.device_mesh = dist.device_mesh.init_device_mesh(
-                "cuda",
-                mesh_dim_names=("fsdp",),
-                mesh_shape=(dist.get_world_size(),)
-            )
-
-        self.sp_device_mesh = dist.device_mesh.init_device_mesh(
+        world_size = dist.get_world_size()
+        assert world_size % (config.ddp_size * config.tp_size) == 0, \
+            f"World_size {world_size} must be divisible by ddp_size {config.ddp_size} * tp_size {config.tp_size}."
+        self.fsdp_size = world_size // (config.ddp_size * config.tp_size)
+        self.model_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
-            mesh_dim_names=("dp", "sp"),
-            mesh_shape=(
-                dist.get_world_size() // config.sp_size,
-                config.sp_size
-            )
+            mesh_dim_names=("ddp", "fsdp", "tp"),
+            mesh_shape=(config.ddp_size, self.fsdp_size, config.tp_size)
+        )
+
+        assert world_size % (config.sp_size * config.tp_size) == 0, \
+            f"World_size {world_size} must be divisible by sp_size {config.sp_size} * tp_size {config.tp_size}."
+        self.dp_size = world_size // (config.sp_size * config.tp_size)
+        self.device_mesh = dist.device_mesh.init_device_mesh(
+            "cuda",
+            mesh_dim_names=("dp", "sp", "tp"),
+            mesh_shape=(self.dp_size, config.sp_size, config.tp_size)
         )
 
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-            self.config.model_name
+            self.config.model_name, trust_remote_code=True
         )
 
     def prepare_model_optimizer(self):
 
-        if hasattr(self.config, "lora") and self.config.lora.rank > 0:
-            self.model.enable_input_require_grads()
-
-            lora_config = LoraConfig(
-                r=self.config.lora.rank,
-                lora_alpha=self.config.lora.alpha,
-                target_modules=self.config.lora.target_modules,
-                lora_dropout=self.config.lora.dropout,
-                bias="none"
-            )
-            self.model = get_peft_model(self.model, lora_config)
-
         if self.train and self.config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
-        # TODO: support TP
-        kwargs = {
-            "mesh": self.device_mesh
-        }
-        if self.train:
-            kwargs["mp_policy"] = MixedPrecisionPolicy(
-                param_dtype=torch.bfloat16,
-                reduce_dtype=torch.bfloat16,
-                output_dtype=torch.bfloat16
-            )
-        for module in self.model.modules():
-            if module.__class__.__name__ in self.model._no_split_modules or (
-                isinstance(module, torch.nn.Embedding) and not self.model.config.tie_word_embeddings
-            ):
-                fully_shard(module, **kwargs)
-        fully_shard(self.model, **kwargs) 
+        if self.config.tp_size > 1:
+            prepare_tp_model(self.model, self.model_device_mesh["tp"])
+
+        prepare_dp_model(
+            self.model, self.train, self.model_device_mesh["ddp", "fsdp"]
+        )
 
         if self.train:
 
@@ -124,6 +95,8 @@ class Worker:
             # Pack minibatches into multiple batches, where each batch is 
             # used for an update and contains multiple minibatches.
             if dist.get_rank() == 0:
+                assert len(data_list) >= self.config.update_per_rollout, \
+                    f"The number of trajectories {len(data_list)} is less than the number of updates {self.config.update_per_rollout}."
                 n_trajectories_per_update = math.ceil(
                     len(data_list) / self.config.update_per_rollout
                 )
@@ -145,7 +118,7 @@ class Worker:
             # the length of each sequence needs to be multiple of 2 * 
             # sp size and each rank sequentially get the head and tail.
             # See https://zhuanlan.zhihu.com/p/683714620.
-            multiple_of = 2 * self.sp_device_mesh["sp"].size()
+            multiple_of = 2 * self.device_mesh["sp"].size()
             for ex in data_list:
                 if len(ex["states"]) % multiple_of == 0:
                     continue
@@ -163,7 +136,7 @@ class Worker:
                 # When pair, every two adjacent trajectories will be colocated, so their length are summed.
                 seq_len_list = torch.tensor(seq_len_list).view(-1, 2).sum(-1).flatten().tolist()
             max_length_per_dp = (
-                self.sp_device_mesh["sp"].size() * (
+                self.device_mesh["sp"].size() * (
                     self.config.max_length_per_device
                     if torch.is_grad_enabled()
                     else self.config.max_inference_length_per_device
@@ -178,7 +151,7 @@ class Worker:
 
             # Every dp should has identical number of minibatches, thus the 
             # total number of minibatches must be a multiple of dp size.
-            multiple_of = self.sp_device_mesh["dp"].size()
+            multiple_of = self.device_mesh["dp"].size()
             if n_minibatches % multiple_of != 0:
                 n_minibatches += (multiple_of - n_minibatches % multiple_of)
 
@@ -187,7 +160,7 @@ class Worker:
                 # it may be larger than the number of trajectories so that
                 # there are not enough trajectories to fill all minibatches.
                 self.padding_trajectories = n_minibatches - len(seq_len_list)
-                trajectory_length = 2 * self.sp_device_mesh["sp"].size()
+                trajectory_length = 2 * self.device_mesh["sp"].size()
                 trajectory = {
                     k: torch.zeros((trajectory_length), dtype=v.dtype)
                     for k, v in data_list[0].items()
@@ -208,8 +181,8 @@ class Worker:
                 ])
                 if max_minibatch_length <= max_length_per_dp:
                     break
-                n_minibatches += self.sp_device_mesh["dp"].size()
-            n_minibatches_per_dp = n_minibatches // self.sp_device_mesh["dp"].size()
+                n_minibatches += self.device_mesh["dp"].size()
+            n_minibatches_per_dp = n_minibatches // self.device_mesh["dp"].size()
 
             if pair:
                 partitions = [
@@ -225,16 +198,18 @@ class Worker:
                     [data_list[p] for p in partition]
                     for partition in partitions[rank * n_minibatches_per_dp:(rank + 1) * n_minibatches_per_dp]
                 ]
-                for rank in range(self.sp_device_mesh["dp"].size())
-                for _ in range(self.sp_device_mesh["sp"].size())
+                for rank in range(self.device_mesh["dp"].size())
+                for _ in range(
+                    self.device_mesh["sp", "tp"].size()
+                )
             ]
         
         data_list = split_and_scatter_list(
             data_lists if dist.get_rank() == 0 else None,
         )[0]
         
-        rank = self.sp_device_mesh["sp"].get_local_rank()
-        multiple_of = 2 * self.sp_device_mesh["sp"].size()
+        rank = self.device_mesh["sp"].get_local_rank()
+        multiple_of = 2 * self.device_mesh["sp"].size()
         minibatches = []
         for data in data_list:
             minibatch = {}
@@ -244,18 +219,22 @@ class Worker:
                     tensor = ex[k]
                     # To apply ZigZag Ring Attention, every trajectory is 
                     # evenly partitioned into 2 * sp size segments and each 
-                    # rank sequentially get the head and tail. It is fine 
-                    # to shuffle the order of tokens here since all 
-                    # subsequent operations, i.e., Actor.compute_logps, 
-                    # Critic.compute_values, and Actor/Critic.update, are 
-                    # element-wise.
+                    # rank sequentially get the head and tail.
+                    # See https://zhuanlan.zhihu.com/p/683714620.
                     half_seqlen = len(tensor) // multiple_of
                     tensor = torch.cat((
                         tensor[rank * half_seqlen:(rank + 1) * half_seqlen],
                         tensor[(multiple_of - rank - 1) * half_seqlen: (multiple_of - rank) * half_seqlen]
                     ))
                     tensors.append(tensor)
-                minibatch[k] = torch.cat(tensors).unsqueeze(0).to(torch.cuda.current_device())
+                # When using tensor parallelism, the length of minibatch must be multiple of tp size so that the sequence can be evenly sharded.
+                minibatch_length = sum([len(tensor) for tensor in tensors])
+                if minibatch_length % self.config.tp_size != 0:
+                    pad_tokens = self.config.tp_size - minibatch_length % self.config.tp_size
+                    tensors.append(torch.zeros((pad_tokens), dtype=tensor.dtype))
+                minibatch[k] = torch.cat(tensors).unsqueeze(0).to(
+                    torch.cuda.current_device()
+                )
             # `update_params_of_ring_attn` requires `cu_seqlens` to mask 
             # the attention across trajectories within a minibatch. 
             seqlens = torch.IntTensor([len(tensor) for tensor in tensors])
@@ -280,15 +259,15 @@ class Worker:
                     tensor = v.squeeze(0)[start_idx:end_idx]
                     tensors = [
                         torch.zeros_like(tensor)
-                        for _ in range(self.sp_device_mesh["sp"].size())
+                        for _ in range(self.device_mesh["sp"].size())
                     ]
                     dist.gather(
                         tensor,
-                        tensors if self.sp_device_mesh["sp"].get_local_rank() == 0 else None,
-                        group=self.sp_device_mesh["sp"].get_group(),
+                        tensors if self.device_mesh["sp"].get_local_rank() == 0 else None,
+                        group=self.device_mesh["sp"].get_group(),
                         group_dst=0
                     )
-                    # Devices with non-zero sp rank process zero tensors.
+                    # Devices with non-zero sp rank will process zero tensors.
                     mid_idx = len(tensor) // 2
                     inorder_tensors, reversed_tensors = [], []
                     for tensor in tensors:
@@ -299,14 +278,16 @@ class Worker:
                     )).to("cpu")
 
                 length = torch.argmax(ex["position_ids"]).item()
+                if length == 0:
+                    continue
                 ex = {
                     k: v[:length + 1] for k, v in ex.items()
                 }
                 data_list.append(ex)
         
-        if self.sp_device_mesh["sp"].get_local_rank() == 0:
+        if self.device_mesh["sp"].get_local_rank() == 0 and self.device_mesh["tp"].get_local_rank() == 0:
             shuffled_data_list = gather_and_concat_list(
-                data_list, self.sp_device_mesh["dp"]
+                data_list, self.device_mesh["dp"]
             )
             if dist.get_rank() == 0:
                 data_list = len(shuffled_data_list) * [None]
@@ -317,15 +298,28 @@ class Worker:
                 return data_list
             
     def count_total_actions(self, minibatches):
-
+        
         total_actions = sum(
             [minibatch["action_mask"].sum() for minibatch in minibatches]
         )
         total_actions = torch.Tensor(
             [total_actions]
         ).to(torch.cuda.current_device())
-        dist.all_reduce(total_actions, op=dist.ReduceOp.SUM)
+        dist.all_reduce(
+            total_actions,
+            op=dist.ReduceOp.SUM,
+            group=self.device_mesh["sp"].get_group()
+        )
+        dist.all_reduce(
+            total_actions,
+            op=dist.ReduceOp.SUM,
+            group=self.device_mesh["dp"].get_group()
+        )
         return total_actions.to("cpu").item()
+    
+    def backward(self, loss):
+        # https://github.com/ChenmienTan/RL2/issues/11
+        (self.dp_size * self.config.sp_size * loss).backward()
     
     def optimizer_step(self):
 
@@ -374,17 +368,44 @@ class Worker:
             **kwargs
         )
 
-    def rank0_log(self, metrics, step):
-        
+    def gather_and_log(self, metrics, step):
+
+        metrics = {
+            k: gather_and_concat_list(v, self.device_mesh["dp"])
+            for k, v in metrics.items()
+        }
+
         if dist.get_rank() == 0:
             metrics = {
-                k: sum(v) / len(v)
+                k: sum(v) / (1.0 if k == "loss" else len(v))
                 for k, v in metrics.items()
             }
             tqdm.write(f"Step {step + 1}, " + ", ".join([
                 f"{k}: {v:.3g}" for k, v in metrics.items()
             ]))
             wandb.log(metrics, step=step)
+
+    def gather_and_reduce(self, lst):
+
+        lst = gather_and_concat_list(lst, self.device_mesh["sp"])
+        if self.device_mesh["sp"].get_local_rank() == 0:
+            lst = gather_and_concat_list(lst, self.device_mesh["dp"])
+            if dist.get_rank() == 0:
+                return sum(lst)
+
+    def rank0_log(self, metrics, step):
+        
+        if not dist.get_rank() == 0:
+            return
+        
+        metrics = {
+            k: sum(v) / len(v)
+            for k, v in metrics.items()
+        }
+        tqdm.write(f"Step {step + 1}, " + ", ".join([
+            f"{k}: {v:.3g}" for k, v in metrics.items()
+        ]))
+        wandb.log(metrics, step=step)
 
     def save(self, step=None, rm=False):
 

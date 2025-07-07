@@ -135,13 +135,13 @@ torchrun \
 ### Actor and Critic
 
 * `model_name`: Hugging Face name or local path of model.
-* `optimizer_dir`: The directory of optimizer state to be loaded.  
-* `fsdp_size`: The model parameters will be sharded across every `fsdp_size` GPUs.
-Must be divisible by the total number of GPUs.
-Default to `0`, where a single copy of parameters is sharded across all GPUs.
+* `gradient_checkpointing`: Whether to enable gradient checkpointing.
+* `ddp_size`: The number of model parameter copies.
+When `ddp_size=1`, ZeRO stage 3 is applied; when `ddp_size` equals to total number of GPUs, ZeRO stage 2 is applied.
+* `tp_size`: The model parameter will be sharded across `tp_size` GPUs.
 * `sp_size`: The sequence will be sharded across `sp_size` GPUs.
 Must be divisible by the total number of GPUs.
-* `gradient_checkpointing`: Whether to enable gradient checkpointing.
+* `optimizer_dir`: The directory of optimizer state to be loaded.  
 * `max_length_per_device`: The maximum length allowed for a single GPU at training.
 The length of any sequence cannot exceed `sp_size * max_length_per_device`.
 * `max_inference_length_per_device`: The maximum length allowed for a single GPU at inference.

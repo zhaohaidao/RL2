@@ -7,8 +7,8 @@ from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
 from RL2.workers import Actor
+from RL2.utils.comm import initialize_global_process_group
 from RL2.algs import sequence_all_reduce
-from RL2.utils.comm import initialize_global_process_group, log
 from RL2.utils.timing import time_logger
 
 
@@ -30,20 +30,19 @@ class DPOTrainer(Trainer):
     def update_actor(self, data_list, step):
 
         minibatches = self.actor.scatter_and_pack_data_list(data_list, pair=True)
-
         metrics = defaultdict(list)
         for minibatch in self.actor.tqdm(
             minibatches, desc="Update actor"
         ):
             logps = self.actor.forward(minibatch)
             chosen_rewards, rejected_rewards = sequence_all_reduce(
-                minibatch,
                 self.config.actor.beta * (logps - minibatch["ref_logps"]),
-                self.actor.sp_device_mesh["sp"]
+                minibatch["cu_seqlens"],
+                self.actor.device_mesh["sp"]
             ).view(-1, 2).T
             reward_margins = chosen_rewards - rejected_rewards
             loss = - F.logsigmoid(reward_margins).sum() / self.config.data.batch_size
-            (loss * dist.get_world_size()).backward()
+            self.actor.backward(loss)
 
             metrics["rewards/chosen"].extend(chosen_rewards.tolist())
             metrics["rewards/rejected"].extend(rejected_rewards.tolist())
@@ -54,7 +53,7 @@ class DPOTrainer(Trainer):
         grad_norm = self.actor.optimizer_step()
         self.scheduler.step()
         metrics["grad_norm"].append(grad_norm)
-        log(metrics, step, self.actor.sp_device_mesh["dp"])
+        self.actor.gather_and_log(metrics, step)
 
     def train(self):
 
