@@ -12,16 +12,30 @@ def all_reduce_with_grad(partial_values, device_mesh):
     )
     return values + partial_values - partial_values.detach()
 
-def compute_logsumexp_by_chunk(logits, chunk_size=1024):
-    
+def compute_logsumexp(logits, device_mesh, chunk_size=1024):
+
     logsumexp = []
     for start in range(0, logits.shape[1], chunk_size):
         logsumexp.append(
             logits[:, start:start + chunk_size].logsumexp(-1)
         )
-    return torch.cat(logsumexp, -1)
+    partial_logsumexp = torch.cat(logsumexp, -1)
 
-def compute_logps(logits, actions, device_mesh):
+    logsumexps = [
+        torch.zeros_like(partial_logsumexp)
+        for _ in range(device_mesh.size())
+    ]
+    dist.all_gather(
+        logsumexps,
+        partial_logsumexp,
+        group=device_mesh.get_group()
+    )
+    logsumexps[device_mesh.get_local_rank()] = partial_logsumexp
+    return torch.cat([
+        logsumexp.unsqueeze(-1) for logsumexp in logsumexps
+    ], -1).logsumexp(-1)
+
+def compute_logps(logits, actions, logsumexp, device_mesh):
 
     # When using tensor parallelism, each device will only have a shard of 
     # logits. We firstly figure out which device are the action logits on.
@@ -61,22 +75,14 @@ def compute_logps(logits, actions, device_mesh):
     ).squeeze(-1)
     action_logits = all_reduce_with_grad(action_logits, device_mesh)
 
-    partial_logsumexp = compute_logsumexp_by_chunk(logits)
-    logsumexps = [
-        torch.zeros_like(partial_logsumexp)
-        for _ in range(device_mesh.size())
-    ]
-    dist.all_gather(
-        logsumexps,
-        partial_logsumexp,
-        group=device_mesh.get_group()
-    )
-    logsumexps[rank] = partial_logsumexp
-    logsumexp = torch.cat([
-        logsumexp.unsqueeze(-1) for logsumexp in logsumexps
-    ], -1).logsumexp(-1)
-
     return action_logits - logsumexp
+
+def compute_entropy(logits, logsumexp, device_mesh):
+
+    probs = logits.softmax(-1)
+    return logsumexp - all_reduce_with_grad(
+        (probs * logits).sum(-1), device_mesh
+    )
 
 def sequence_all_reduce(values, cu_seqlens, device_mesh):
     # When using sequence parallelism, tokens are distributed 

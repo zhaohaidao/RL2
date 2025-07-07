@@ -4,7 +4,12 @@ import torch.distributed as dist
 from transformers import AutoModelForCausalLM
 from RL2.workers import Worker
 from RL2.utils.models import prepare_lora_model
-from RL2.algs import compute_logps, compute_kl_term
+from RL2.algs import (
+    compute_logsumexp,
+    compute_logps,
+    compute_entropy,
+    compute_kl_term
+)
 from RL2.utils.comm import gather_and_concat_list
 from RL2.utils.ring_attn import update_params_of_ring_attn
 from RL2.utils.timing import time_logger
@@ -51,15 +56,17 @@ class Actor(Worker):
             self.config, "temperature", 1.0
         )
         
+        logsumexp = compute_logsumexp(logits, self.data_device_mesh["tp"])
         logps = compute_logps(
-            logits, minibatch["actions"], self.data_device_mesh["tp"]
+            logits,
+            minibatch["actions"],
+            logsumexp,
+            self.data_device_mesh["tp"]
         ) * minibatch["action_mask"]
         
         if compute_entropy:
-            # TODO: How to compute entropy when using tensor parallelism?
-            probs = logits.softmax(-1)
-            entropy = (
-                logsumexp - (probs * logits).sum(-1)
+            entropy = compute_entropy(
+                logits, logsumexp, self.data_device_mesh["tp"]
             ) * minibatch["action_mask"]
             return logps, entropy
         else:
@@ -131,7 +138,7 @@ class Actor(Worker):
                     ).sum() / total_actions
                     loss = loss + self.config.kl.coef * kl_loss
 
-                (loss * dist.get_world_size()).backward() 
+                self.backward(loss)
 
                 tbar.update()
                 metric["actor/entropy_loss"].append(entropy_loss.item())
@@ -141,7 +148,8 @@ class Actor(Worker):
             grad_norm = self.optimizer_step()
 
             for k, v in metric.items():
-                v = gather_and_concat_list(v)
+                v = gather_and_concat_list(v, self.data_device_mesh["sp"])
+                v = gather_and_concat_list(v, self.data_device_mesh["dp"])
                 if dist.get_rank() == 0:
                     metrics[k].append(sum(v))
             metrics["actor/grad_norm"].append(grad_norm)

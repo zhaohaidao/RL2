@@ -80,7 +80,7 @@ class Critic(Worker):
                 loss = torch.max(mse, clipped_mse).sum() / total_actions
                 clip_ratio = (mse < clipped_mse).sum() / total_actions
                 
-                (loss * dist.get_world_size()).backward()
+                self.backward(loss)
 
                 tbar.update()
                 metric["critic/loss"].append(loss.item())
@@ -89,7 +89,8 @@ class Critic(Worker):
             grad_norm = self.optimizer_step()
             
             for k, v in metric.items():
-                v = gather_and_concat_list(v)
+                v = gather_and_concat_list(v, self.data_device_mesh["sp"])
+                v = gather_and_concat_list(v, self.data_device_mesh["dp"])
                 if dist.get_rank() == 0:
                     metrics[k].append(sum(v))
             metrics["actor/grad_norm"].append(grad_norm)
