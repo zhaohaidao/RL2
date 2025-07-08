@@ -90,7 +90,7 @@ class Actor(Worker):
     
     @time_logger("update_actor")
     def update(self, data_list, step: int):
-        if step < self.config.freeze_steps: # TODO (P0): perhaps not on GPU.
+        if step < self.config.freeze_steps:
             self.offload_model_to_cpu()
             return
         if self.config.kl.coef == 0 and self.config.update_per_rollout == 1:
