@@ -44,20 +44,22 @@ class PPOTrainer(Trainer):
             train
         )
     
-    @time_logger("compute_kl_term")
-    def compute_kl_term(self, data_list, step):
+    @time_logger("compute_approx_kl")
+    def compute_approx_kl(self, data_list, step):
         
         kl = 0
+        total_actions = sum([
+            ex["action_mask"].sum().item() for ex in data_list
+        ])
         for ex in data_list:
-            kl_term = compute_approx_kl(
+            approx_kl = compute_approx_kl(
                 ex["old_logps"],
                 ex["ref_logps"],
                 self.config.actor.kl.reward_estimator
             )
             if self.config.actor.kl.type == "reward":
-                ex["rewards"] -= self.config.actor.kl.coef * kl_term
-            kl += kl_term.sum().item()
-        kl /= sum([ex["action_mask"].sum().item() for ex in data_list])
+                ex["rewards"] -= self.config.actor.kl.coef * approx_kl
+            kl += approx_kl.sum().item() / total_actions
         wandb.log({"actor/kl": kl}, step=step)
     
     @time_logger("compute_advantages")
@@ -102,7 +104,7 @@ class PPOTrainer(Trainer):
 
                 if dist.get_rank() == 0:
                     if self.config.actor.kl.coef > 0:
-                        self.compute_kl_term(data_list, step)
+                        self.compute_approx_kl(data_list, step)
                     self.compute_advantages(data_list, step)
 
                 self.actor.update(data_list, step)
