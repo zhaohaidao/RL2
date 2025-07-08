@@ -28,16 +28,19 @@ class SFTTrainer(Trainer):
     def update_actor(self, data_list, step):
 
         minibatches = self.actor.scatter_and_pack_data_list(data_list)
-        total_actions = self.actor.count_total_actions(minibatches)
         metrics = defaultdict(list)
         for minibatch in self.actor.tqdm(
             minibatches, desc="Update actor"
         ):
             logps = self.actor.forward(minibatch)
-            seq_logps = sequence_all_reduce(
+            logps = sequence_all_reduce(
                 logps, minibatch["cu_seqlens"], self.actor.device_mesh["sp"]
+            ) / sequence_all_reduce(
+                minibatch["action_mask"],
+                minibatch["cu_seqlens"],
+                self.actor.device_mesh["sp"]
             )
-            loss = - seq_logps.sum() / total_actions
+            loss = - logps.sum() / self.config.data.batch_size
             self.actor.backward(loss)
             metrics["loss"].append(loss.item())
 
