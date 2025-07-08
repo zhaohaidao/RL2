@@ -16,13 +16,13 @@ class SFTTrainer(Trainer):
         super().__init__(config)
 
         self.actor = Actor(config.actor, True)
-        self.scheduler = self.prepare_scheduler(self.actor)
         dataset = SFTDataset(
             config.data.path, self.actor.tokenizer, config.data.max_length
         )
         self.dataloader = self.prepare_dataloader(
             dataset, config.data.batch_size, True
         )
+        self.scheduler = self.prepare_scheduler(self.actor)
 
     @time_logger("update_actor")
     def update_actor(self, data_list, step):

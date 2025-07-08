@@ -17,13 +17,13 @@ class RMTrainer(Trainer):
         super().__init__(config)
 
         self.critic = Critic(config.critic)
-        self.scheduler = self.prepare_scheduler(self.critic)
         dataset = RMDataset(
             config.data.path, self.critic.tokenizer, config.data.max_length
         )
         self.dataloader = self.prepare_dataloader(
             dataset, config.data.batch_size, True
         )
+        self.scheduler = self.prepare_scheduler(self.critic)
 
     @time_logger("update_critic")
     def update_critic(self, data_list, step):
