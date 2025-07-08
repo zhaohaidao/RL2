@@ -15,7 +15,6 @@ from tqdm.asyncio import tqdm
 import wandb
 from RL2.workers import Worker
 from RL2.dataset import tokenize_messages
-from RL2.algs import compute_baseline
 from RL2.utils.comm import split_and_scatter_list, gather_and_concat_list
 from RL2.utils.timing import time_logger
 
@@ -197,22 +196,19 @@ class Rollout(Worker):
             )
 
             if dist.get_rank() == 0:
-                # Filter out groups with too low or too high average rewards, 
-                # e.g., all trajectories within the group succeed or fail.
-                _, baseline = compute_baseline(
-                    data_list, self.config.responses_per_prompt
-                )
-                is_group_filtered = [
-                    b <= self.config.group_filtering.lower or 
-                    b >= self.config.group_filtering.upper
-                    for b in baseline
-                ]
+                if not self.config.dynamic_filtering:
+                    return data_list
+
+                rewards = torch.FloatTensor(
+                    [ex["rewards"].sum() for ex in data_list]
+                ).view(-1, self.config.responses_per_prompt)
+                are_filtered = (rewards.std(-1) == 0).tolist()
                 wandb.log({
-                    "group_filtering_ratio": sum(is_group_filtered) / len(is_group_filtered)
+                    "dynamic_filtering_ratio": sum(are_filtered) / len(are_filtered)
                 }, step=step)
                 return sum([
                     data_list[idx * self.config.responses_per_prompt:(idx + 1) * self.config.responses_per_prompt]
-                    for idx, is_filtered in enumerate(is_group_filtered)
+                    for idx, is_filtered in enumerate(are_filtered)
                     if not is_filtered
                 ], [])
         

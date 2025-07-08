@@ -51,9 +51,7 @@ rollout:
     max_new_tokens: ${rollout.train_sampling_params.max_new_tokens}
   max_turns: 1
   env_path: null
-  group_filtering:
-    lower: 0.0
-    upper: 1.0
+  dynamic_filtering: true
   adv_estimator: ${adv.estimator}
 
 ref_actor:

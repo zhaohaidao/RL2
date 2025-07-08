@@ -158,19 +158,14 @@ def compute_gae(data_list, gamma, lamda):
         ex["advantages"][indices] = gae[:len(indices)]
         ex["returns"][indices] = ret[:len(indices)]
 
-def compute_baseline(data_list, responses_per_prompt):
-
-    rewards = torch.FloatTensor(
-        [ex["rewards"].sum() for ex in data_list]
-    ).view(-1, responses_per_prompt)
-
-    return rewards, rewards.mean(-1)
-
 def compute_reinforce_adv(
     data_list, responses_per_prompt, norm_var: bool
 ):
-
-    rewards, baseline = compute_baseline(data_list, responses_per_prompt)
+    
+    rewards = torch.FloatTensor(
+        [ex["rewards"].sum() for ex in data_list]
+    ).view(-1, responses_per_prompt)
+    baseline = rewards.mean(-1)
     advantages = rewards - baseline.unsqueeze(-1)
 
     if norm_var:
