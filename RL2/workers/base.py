@@ -22,27 +22,30 @@ class Worker:
         self.config = config
         self.train = train
 
+        self.prepare_device_mesh()
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+            config.tokenizer_name, trust_remote_code=True
+        )
+
+    def prepare_device_mesh(self):
+
         world_size = dist.get_world_size()
-        assert world_size % (config.ddp_size * config.tp_size) == 0, \
-            f"World_size {world_size} must be divisible by ddp_size {config.ddp_size} * tp_size {config.tp_size}."
-        self.fsdp_size = world_size // (config.ddp_size * config.tp_size)
+        assert world_size % (self.config.ddp_size * self.config.tp_size) == 0, \
+            f"World_size {world_size} must be divisible by ddp_size {self.config.ddp_size} * tp_size {self.config.tp_size}."
+        self.fsdp_size = world_size // (self.config.ddp_size * self.config.tp_size)
         self.model_device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("ddp", "fsdp", "tp"),
-            mesh_shape=(config.ddp_size, self.fsdp_size, config.tp_size)
+            mesh_shape=(self.config.ddp_size, self.fsdp_size, self.config.tp_size)
         )
 
-        assert world_size % (config.sp_size * config.tp_size) == 0, \
-            f"World_size {world_size} must be divisible by sp_size {config.sp_size} * tp_size {config.tp_size}."
-        self.dp_size = world_size // (config.sp_size * config.tp_size)
+        assert world_size % (self.config.sp_size * self.config.tp_size) == 0, \
+            f"World_size {world_size} must be divisible by sp_size {self.config.sp_size} * tp_size {self.config.tp_size}."
+        self.dp_size = world_size // (self.config.sp_size * self.config.tp_size)
         self.device_mesh = dist.device_mesh.init_device_mesh(
             "cuda",
             mesh_dim_names=("dp", "sp", "tp"),
-            mesh_shape=(self.dp_size, config.sp_size, config.tp_size)
-        )
-
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-            self.config.model_name, trust_remote_code=True
+            mesh_shape=(self.dp_size, self.config.sp_size, self.config.tp_size)
         )
 
     def prepare_model_optimizer(self):

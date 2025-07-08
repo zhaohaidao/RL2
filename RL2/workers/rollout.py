@@ -22,27 +22,12 @@ from RL2.utils.timing import time_logger
 class Rollout(Worker):
 
     def __init__(self, config):
-
-        self.config = config
-
-        world_size = dist.get_world_size()
-        assert world_size % config.tp_size == 0, \
-            f"World_size {world_size} must be divisible by tp_size {config.tp_size}."
-        self.dp_size = world_size // config.tp_size
-        self.device_mesh = dist.device_mesh.init_device_mesh(
-            "cpu",
-            mesh_dim_names=("dp", "tp"),
-            mesh_shape=(self.dp_size, self.config.tp_size)
-        )
-
+        super().__init__(config, None)
+        
         # TODO (P1): support multi-node inference.
         self.prepare_environment_variables()
         if self.device_mesh["tp"].get_local_rank() == 0:
-            
             self.prepare_environment()
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                config.model_name, trust_remote_code=True
-            )
 
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             self.llm = Engine(
@@ -62,6 +47,18 @@ class Rollout(Worker):
             )
 
         dist.barrier()
+
+    def prepare_device_mesh(self):
+
+        world_size = dist.get_world_size()
+        assert world_size % self.config.tp_size == 0, \
+            f"World_size {world_size} must be divisible by tp_size {self.config.tp_size}."
+        self.dp_size = world_size // self.config.tp_size
+        self.device_mesh = dist.device_mesh.init_device_mesh(
+            "cpu",
+            mesh_dim_names=("dp", "tp"),
+            mesh_shape=(self.dp_size, self.config.tp_size)
+        )
 
     def prepare_environment_variables(self):
 

@@ -2,7 +2,6 @@ import hydra
 from collections import defaultdict
 import torch.nn.functional as F
 import torch.distributed as dist
-from transformers import AutoTokenizer
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import RMDataset
@@ -17,15 +16,14 @@ class RMTrainer(Trainer):
     def __init__(self, config):
         super().__init__(config)
 
-        tokenizer = AutoTokenizer.from_pretrained(config.critic.model_name)
+        self.critic = Critic(config.critic)
+        self.scheduler = self.prepare_scheduler(self.critic)
         dataset = RMDataset(
-            config.data.path, tokenizer, config.data.max_length
+            config.data.path, self.critic.tokenizer, config.data.max_length
         )
         self.dataloader = self.prepare_dataloader(
             dataset, config.data.batch_size, True
         )
-        self.critic = Critic(config.critic)
-        self.scheduler = self.prepare_scheduler(self.critic)
 
     @time_logger("update_critic")
     def update_critic(self, data_list, step):

@@ -6,6 +6,7 @@ data:
   
 actor:
   model_name: null
+  tokenizer_name: ${actor.model_name}
   use_liger_kernel: false
   gradient_checkpointing: true
   ddp_size: 1
@@ -40,6 +41,7 @@ actor:
 
 rollout:
   model_name: ${actor.model_name}
+  tokenizer_name: ${rollout.model_name}
   tp_size: 1
   gpu_memory_utilization: 0.5
   responses_per_prompt: ${data.responses_per_prompt}
@@ -56,6 +58,7 @@ rollout:
 
 ref_actor:
   model_name: ${actor.model_name}
+  tokenizer_name: ${ref_actor.model_name}
   use_liger_kernel: ${actor.use_liger_kernel}
   ddp_size: ${actor.ddp_size}
   tp_size: ${actor.tp_size}
@@ -66,6 +69,7 @@ ref_actor:
 
 critic:
   model_name: ${actor.model_name}
+  tokenizer_name: ${critic.model_name}
   gradient_checkpointing: ${actor.gradient_checkpointing}
   ddp_size: ${actor.ddp_size}
   tp_size: ${actor.tp_size}

@@ -21,23 +21,28 @@ def load_dataset(data_path):
 
 def tokenize_messages(tokenizer, messages):
 
-    # TODO (P0): support QwQ and Qwen3
     states, actions, action_mask = [], [], []
     for idx, message in enumerate(messages):
 
-        state = tokenizer.apply_chat_template(
-            messages[:idx + 1],
-            add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
-        )[len(states):]
+        if message["role"] == "assistant":
+            state = tokenizer.encode(
+                message["content"], add_special_tokens=False
+            )
+            actions.extend(state)
+            action_mask.extend(len(state) * [1])
+        else:
+            next_states = tokenizer.apply_chat_template(
+                messages[:idx + 1],
+                add_generation_prompt=idx + 1 < len(messages) and messages[idx + 1]["role"] == "assistant"
+            )
+            assert next_states[:len(states)] == states, \
+                "Your tokenizer should be increasing, i.e., adding a new message should not change the tokenization of previous messages. For example, if you are using Qwen3 in multi-turn cases, previous thinking will be eliminated. In this case, you may set `tokenizer_name=Chenmien/Qwen3-Increasing-Tokenizer`."
+        
+            state = next_states[len(states):]
+            actions.extend(len(state) * [0])
+            action_mask.extend(len(state) * [0])
 
         states.extend(state)
-        actions.extend(
-            state if message["role"] == "assistant"
-            else len(state) * [0]
-        )
-        action_mask.extend(len(state) * [
-            1 if message["role"] == "assistant" else 0
-        ])
 
     return {
         "states": torch.LongTensor(states[:-1]),

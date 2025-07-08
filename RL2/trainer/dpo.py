@@ -2,7 +2,6 @@ import hydra
 from collections import defaultdict
 import torch.nn.functional as F
 import torch.distributed as dist
-from transformers import AutoTokenizer
 from tqdm import tqdm
 from RL2.trainer import Trainer
 from RL2.dataset import DPODataset
@@ -17,16 +16,15 @@ class DPOTrainer(Trainer):
     def __init__(self, config):
         super().__init__(config)
 
-        tokenizer = AutoTokenizer.from_pretrained(config.actor.model_name)
+        self.actor = Actor(config.actor, True)
+        self.ref_actor = Actor(config.ref_actor, False)
+        self.scheduler = self.prepare_scheduler(self.actor)
         dataset = DPODataset(
-            config.data.path, tokenizer, config.data.max_length
+            config.data.path, self.actor.tokenizer, config.data.max_length
         )
         self.dataloader = self.prepare_dataloader(
             dataset, config.data.batch_size, True
         )
-        self.actor = Actor(config.actor, True)
-        self.ref_actor = Actor(config.ref_actor, False)
-        self.scheduler = self.prepare_scheduler(self.actor)
 
     @time_logger("update_actor")
     def update_actor(self, data_list, step):
