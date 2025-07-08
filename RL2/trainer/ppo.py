@@ -1,5 +1,4 @@
 import hydra
-from torch.utils.data import DataLoader
 import torch.distributed as dist
 from tqdm import tqdm
 import wandb
@@ -38,12 +37,11 @@ class PPOTrainer(Trainer):
             self.config.data.responses_per_prompt if train else 1
         )
 
-        return DataLoader(
+        return super().prepare_dataloader(
             dataset,
             self.config.data.prompts_per_rollout
             if train else len(dataset),
-            shuffle=train,
-            collate_fn=dataset.collate_fn
+            train
         )
     
     @time_logger("compute_kl_term")

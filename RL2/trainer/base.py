@@ -22,11 +22,12 @@ class Trainer:
             else:
                 wandb.log = lambda *args, **kwargs: None
 
-    def prepare_dataloader(self, dataset):
+    # TODO: resume training
+    def prepare_dataloader(self, dataset, batch_size, shuffle):
         return DataLoader(
             dataset,
-            self.config.data.batch_size,
-            shuffle=True,
+            batch_size,
+            shuffle=shuffle,
             drop_last=True,
             collate_fn=dataset.collate_fn
         )

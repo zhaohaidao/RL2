@@ -21,7 +21,9 @@ class DPOTrainer(Trainer):
         dataset = DPODataset(
             config.data.path, tokenizer, config.data.max_length
         )
-        self.dataloader = self.prepare_dataloader(dataset)
+        self.dataloader = self.prepare_dataloader(
+            dataset, config.data.batch_size, True
+        )
         self.actor = Actor(config.actor, True)
         self.ref_actor = Actor(config.ref_actor, False)
         self.scheduler = self.prepare_scheduler(self.actor)

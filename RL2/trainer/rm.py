@@ -21,7 +21,9 @@ class RMTrainer(Trainer):
         dataset = RMDataset(
             config.data.path, tokenizer, config.data.max_length
         )
-        self.dataloader = self.prepare_dataloader(dataset)
+        self.dataloader = self.prepare_dataloader(
+            dataset, config.data.batch_size, True
+        )
         self.critic = Critic(config.critic)
         self.scheduler = self.prepare_scheduler(self.critic)
 
