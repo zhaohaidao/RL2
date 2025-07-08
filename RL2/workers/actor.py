@@ -26,7 +26,7 @@ class Actor(Worker):
         else:
             model_cls = AutoModelForCausalLM
 
-        # TODO: initialize model on meta device
+        # TODO (P1): initialize model on meta device
         self.model = model_cls.from_pretrained(
             config.model_name,
             torch_dtype=torch.float32 if train else torch.bfloat16,
@@ -90,7 +90,7 @@ class Actor(Worker):
     
     @time_logger("update_actor")
     def update(self, data_list, step: int):
-        if step < self.config.freeze_steps:
+        if step < self.config.freeze_steps: # TODO (P0): perhaps not on GPU.
             self.offload_model_to_cpu()
             return
         if self.config.kl.coef == 0 and self.config.update_per_rollout == 1:

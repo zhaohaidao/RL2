@@ -22,7 +22,7 @@ class Trainer:
             else:
                 wandb.log = lambda *args, **kwargs: None
 
-    # TODO: resume training
+    # TODO (P1): resume training
     def prepare_dataloader(self, dataset, batch_size, shuffle):
         return DataLoader(
             dataset,

@@ -3,6 +3,7 @@ import datasets
 import torch
 from torch.utils.data import Dataset
 
+# TODO (P1): support concatnating multiple datasets
 def load_dataset(data_path):
 
     if "@" in data_path:
@@ -20,7 +21,7 @@ def load_dataset(data_path):
 
 def tokenize_messages(tokenizer, messages):
 
-    # TODO: change the chat_template of QwQ and Qwen3
+    # TODO (P0): support QwQ and Qwen3
     states, actions, action_mask = [], [], []
     for idx, message in enumerate(messages):
 
@@ -45,7 +46,7 @@ def tokenize_messages(tokenizer, messages):
         "position_ids": torch.arange(len(states) - 1)
     }
 
-
+# TODO (P1): support not apply_chat_template
 class BaseDataset(Dataset):
     
     def __init__(

@@ -25,22 +25,24 @@ class Rollout(Worker):
     def __init__(self, config):
 
         self.config = config
+
+        world_size = dist.get_world_size()
+        assert world_size % config.tp_size == 0, \
+            f"World_size {world_size} must be divisible by tp_size {config.tp_size}."
+        self.dp_size = world_size // config.tp_size
         self.device_mesh = dist.device_mesh.init_device_mesh(
             "cpu",
             mesh_dim_names=("dp", "tp"),
-            mesh_shape=(
-                dist.get_world_size() // self.config.tp_size,
-                self.config.tp_size
-            )
+            mesh_shape=(self.dp_size, self.config.tp_size)
         )
 
-        # TODO: support multi-node inference.
+        # TODO (P1): support multi-node inference.
         self.prepare_environment_variables()
         if self.device_mesh["tp"].get_local_rank() == 0:
             
             self.prepare_environment()
             self.tokenizer = AutoTokenizer.from_pretrained(
-                config.model_name
+                config.model_name, trust_remote_code=True
             )
 
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -109,7 +111,7 @@ class Rollout(Worker):
 
             # Current SGLang engine will generate sequence longer than 
             # `max_new_tokens`.
-            # TODO: Check whether all configurations are properly set 
+            # TODO (P1): Check whether all configurations are properly set 
             # and whether the bug has been fixed in the latest version.
             messages.append(
                 {
@@ -126,7 +128,7 @@ class Rollout(Worker):
             if turn + 1 == self.config.max_turns:
                 break
 
-            # TODO: support more flexible format
+            # TODO (P0): support more flexible format
             env_messages = self.env.interact(messages)
             # Terminate if no tool is invoked.
             if len(env_messages) == 0:
