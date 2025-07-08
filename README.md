@@ -8,7 +8,7 @@ You can simply launch the training with `torchrun` as you do in supervised fine-
 
 Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
-* Model partition via Fully Sharded Data Parallelism (and Tensor Parallelism upcoming!)
+* Model partition via Fully Sharded Data Parallelism and Tensor Parallelism
 * Efficient sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
 * Inference engine and KV cache partition via Tensor Parallelism
 
