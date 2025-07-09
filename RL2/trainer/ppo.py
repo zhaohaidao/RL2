@@ -8,7 +8,8 @@ from RL2.workers import Actor, Rollout, Critic
 from RL2.algs import (
     compute_approx_kl,
     compute_gae,
-    compute_reinforce_adv
+    compute_reinforce_adv,
+    fill_zero_adv
 )
 from RL2.utils.comm import initialize_global_process_group
 from RL2.utils.timing import time_logger
@@ -77,7 +78,9 @@ class PPOTrainer(Trainer):
                 self.config.data.responses_per_prompt,
                 self.config.adv.norm_var
             )
-        else:
+        elif self.config.adv.estimator == "zeros":
+            fill_zero_adv(data_list)
+        else: 
             raise NotImplementedError
             
     def train(self):
