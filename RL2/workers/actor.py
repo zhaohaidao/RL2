@@ -35,6 +35,8 @@ class Actor(Worker):
         )
 
         if hasattr(self.config, "lora") and self.config.lora.rank > 0:
+            assert config.tp_size == 1, \
+                "LoRA is not compatible with tensor parallelism."
             self.model = prepare_lora_model(
                 self.model, "CAUSAL_LM", config.lora
             )
