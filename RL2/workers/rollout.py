@@ -82,19 +82,20 @@ class Rollout(Worker):
         
     async def rollout(self, ex, train):
 
+        messages, answer = ex["messages"], ex["answer"]
         metric = defaultdict(list)
         for turn in range(self.config.max_turns):
 
             if self.config.apply_chat_template:
                 prompt = self.tokenizer.apply_chat_template(
-                    ex["messages"],
+                    messages,
                     tool=getattr(self.env, "TOOL", None),
                     add_generation_prompt=True,
                     tokenize=False
                 )
             else:
                 prompt = "".join([
-                    msg["content"] for msg in ex["messages"]
+                    msg["content"] for msg in messages
                 ])
             
             response = await self.llm.async_generate(
@@ -118,7 +119,7 @@ class Rollout(Worker):
                     response["text"], add_special_tokens=False
                 )[:meta_info["completion_tokens"]]
             )
-            ex["messages"].append(
+            messages.append(
                 {"role": "assistant", "content": content}
             )
 
@@ -126,18 +127,18 @@ class Rollout(Worker):
             if turn + 1 == self.config.max_turns:
                 break
 
-            env_messages = self.env.interact(ex["messages"])
+            env_messages = self.env.interact(messages)
             # Terminate if no tool is invoked.
             if len(env_messages) == 0:
                 break
 
-            ex["messages"].extend(env_messages)
+            messages.extend(env_messages)
 
-        reward = self.env.reward_fn(ex["messages"], ex["answer"])
+        reward = self.env.reward_fn(messages, answer)
 
         ex = tokenize_messages(
             self.tokenizer,
-            ex["messages"],
+            messages,
             getattr(self.env, "TOOL", None),
             self.config.apply_chat_template
         )
@@ -149,7 +150,7 @@ class Rollout(Worker):
         metric["rewards"].append(reward)
         metric["trajectory_length"].append(len(ex["states"]))
 
-        return ex, ex["messages"], metric
+        return ex, messages, metric
 
     @time_logger("rollout")
     def __call__(self, data_list, train: bool, step: int):
