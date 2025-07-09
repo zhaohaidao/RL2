@@ -45,6 +45,7 @@ rollout:
   tp_size: 1
   gpu_memory_utilization: 0.5
   responses_per_prompt: ${data.responses_per_prompt}
+  apply_chat_template: true
   train_sampling_params:
     temperature: 1.0
     max_new_tokens: null

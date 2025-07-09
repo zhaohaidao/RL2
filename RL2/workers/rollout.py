@@ -6,7 +6,6 @@ import importlib
 from collections import defaultdict
 import torch
 import torch.distributed as dist
-from transformers import AutoTokenizer
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils import MultiprocessingSerializer
@@ -83,16 +82,21 @@ class Rollout(Worker):
         
     async def rollout(self, ex, train):
 
-        messages, answer = ex["messages"], ex["answer"]
         metric = defaultdict(list)
         for turn in range(self.config.max_turns):
 
-            prompt = self.tokenizer.apply_chat_template(
-                messages,
-                tool=getattr(self.env, "TOOL", None),
-                add_generation_prompt=True,
-                tokenize=False
-            )
+            if self.config.apply_chat_template:
+                prompt = self.tokenizer.apply_chat_template(
+                    ex["messages"],
+                    tool=getattr(self.env, "TOOL", None),
+                    add_generation_prompt=True,
+                    tokenize=False
+                )
+            else:
+                prompt = "".join([
+                    msg["content"] for msg in ex["messages"]
+                ])
+            
             response = await self.llm.async_generate(
                 prompt,
                 sampling_params=self.train_sampling_params
@@ -109,32 +113,34 @@ class Rollout(Worker):
             # `max_new_tokens`.
             # TODO (P1): Check whether all configurations are properly set 
             # and whether the bug has been fixed in the latest version.
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": self.tokenizer.decode(
-                        self.tokenizer.encode(
-                            response["text"], add_special_tokens=False
-                        )[:meta_info["completion_tokens"]]
-                    )
-                }
+            content = self.tokenizer.decode(
+                self.tokenizer.encode(
+                    response["text"], add_special_tokens=False
+                )[:meta_info["completion_tokens"]]
+            )
+            ex["messages"].append(
+                {"role": "assistant", "content": content}
             )
 
             # Do not invoke tools in the last turn.
             if turn + 1 == self.config.max_turns:
                 break
 
-            # TODO (P0): support more flexible format
-            env_messages = self.env.interact(messages)
+            env_messages = self.env.interact(ex["messages"])
             # Terminate if no tool is invoked.
             if len(env_messages) == 0:
                 break
 
-            messages.extend(env_messages)
+            ex["messages"].extend(env_messages)
 
-        reward = self.env.reward_fn(messages, answer)
+        reward = self.env.reward_fn(ex["messages"], ex["answer"])
 
-        ex = tokenize_messages(self.tokenizer, messages)
+        ex = tokenize_messages(
+            self.tokenizer,
+            ex["messages"],
+            getattr(self.env, "TOOL", None),
+            self.config.apply_chat_template
+        )
         ex.update({
             "rewards": torch.FloatTensor((ex["states"].shape[-1] - 1) * [0] + [reward])
         })
@@ -143,7 +149,7 @@ class Rollout(Worker):
         metric["rewards"].append(reward)
         metric["trajectory_length"].append(len(ex["states"]))
 
-        return ex, messages, metric
+        return ex, ex["messages"], metric
 
     @time_logger("rollout")
     def __call__(self, data_list, train: bool, step: int):
