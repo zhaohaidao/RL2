@@ -2,13 +2,13 @@
 
 A concise library of reinforcement learning for large language models.
 
-This is the right library for you if you are tired with complicated abstractions.
+This is the right library for you if you want to learn reinforcement learning for large language models or have a quick test for your own algorithm.
 We deliver a clear implementation within 1K lines.
-You can simply launch the training with `torchrun` as you do in supervised fine-tuning.
 
-Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 32B, language models with
 
-* Model partition via Fully Sharded Data Parallelism and Tensor Parallelism
+Despite the simplicity, you should be able to scale up to moderate-sized, *e.g.*, 72B, language models with
+
+* Model partition via [Fully Sharded Data Parallelism](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html) and [Tensor Parallelism](https://docs.pytorch.org/docs/stable/distributed.tensor.parallel.html)
 * Efficient sequence parallelism via [ZigZag Ring Attention](https://github.com/zhuzilin/ring-flash-attention)
 * Inference engine and KV cache partition via Tensor Parallelism
 
@@ -33,21 +33,8 @@ pip install -e .
 
 ### Data
 
-Hugging Face dataset and various file types, including JSON, JSONL, CSV, Parquet, and Arrow, are accepted.
-The data for PPO should be in the following format
-
-```
-[
-    {
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "What is the capital of China?"}
-        ],
-        "answer": "Beijing"
-    }
-]
-```
-For SFT
+Hugging Face dataset and various file types, *i.e.*, JSON, JSONL, CSV, Parquet, and Arrow, are accepted.
+The data for SFT should be in the following format
 ```
 [
     {
@@ -58,7 +45,7 @@ For SFT
     }
 ]
 ```
-For reward modeling and DPO
+For RM and DPO
 ```
 [
     {
@@ -70,6 +57,22 @@ For reward modeling and DPO
     }
 ]
 ```
+For PPO
+```
+[
+    {
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of China?"}
+        ],
+        "answer": "Beijing"
+    }
+]
+```
+
+For SFT, RM, and DPO, `batch_size` samples will be used for an update.
+For PPO, `prompts_per_rollout` prompts will be used per rollout and `responses_per_prompt` trajectories will be sampled for a prompt.
+These trajectories will be evenly used for `update_per_rollout` updates.
 
 ### Rewards
 
@@ -122,84 +125,29 @@ torchrun \
     <args>
 ```
 
-## Hyper-Parameters
+## Guide for Hyper-Parameters
 
-### Data
+### Model Partition
 
-* `path`: Hugging Face name or local path of dataset.
-* `max_length`: The maximum length of a sequence.
-* `batch_size`: `batch_size` samples will be used for an update.
-* `prompts_per_rollout`: `prompts_per_rollout` prompts will be used per rollout.
-* `responses_per_prompt`: `responses_per_prompt` trajectories will be sampled for a prompt in rollout.
+* By default, *i.e.*, `ddp_size=1, tp_size=1`, your model will be partitioned via ZeRO stage 3.
+* `ddp_size` specifies the number of model parameter copies.
+For example, if you set `ddp_size` to the number of GPUs, your model will be partitioned by ZeRO stage 2.
+Larger `ddp_size` leads to higher memory consumption and lower communication cost.
+* For large models, sole data parallelism can be memory consuming.
+You may specify `tp_size > 1` to enable tensor parallelism for higher throughput. 
 
-### Actor and Critic
 
-* `model_name`: Hugging Face name or local path of model.
-* `gradient_checkpointing`: Whether to enable gradient checkpointing.
-* `ddp_size`: The number of model parameter copies.
-When `ddp_size=1`, ZeRO stage 3 is applied; when `ddp_size` equals to total number of GPUs, ZeRO stage 2 is applied.
-* `tp_size`: The model parameter will be sharded across `tp_size` GPUs.
-* `sp_size`: The sequence will be sharded across `sp_size` GPUs.
-Must be divisible by the total number of GPUs.
-* `optimizer_dir`: The directory of optimizer state to be loaded.  
-* `max_length_per_device`: The maximum length allowed for a single GPU at training.
-The length of any sequence cannot exceed `sp_size * max_length_per_device`.
-* `max_inference_length_per_device`: The maximum length allowed for a single GPU at inference.
-* `update_per_rollout`: The model will be updated `update_for_rollout` times per rollout.
-* `clip`: The clipping range of logp ratio or values.
-* `lr`: The learning rate of optimizer.
-* `weight_decay`: The coefficient of L2 regularization of optimizer.
-* `max_grad_norm`: The norm of gradient will be clipped to `max_grad_norm` if it exceeds the value.
-* `warmup_ratio`: The fraction of steps to warm up the optimizer.
-* `freeze_steps`: The model will be freezed in the first `freeze_steps` steps.
-Should only be enabled for actor when `adv.estimator=gae` to warmup critic.
-* `offload_model`: Whether to offload model when not needed.
-* `offload_optimizer`: Whether to offload optimizer when not needed.
-Notice that the optimization step will still run on GPUs, which differs from Adam offloading.
-* `save_dir`: The directory of checkpoints to be saved.
-* `save_freq`: A checkpoint will be saved every `save_freq` steps.
-Default to `None`, where only a single checkpoint will be saved when the training is finished.
-* `save_optimizer`: Whether to save the optimizer.
+### Sequence Length
 
-### Rollout
+For SFT, RM, and DPO, `max_length` is used to truncate sequences.
+Notice that in RM and DPO, the chosen and rejected sequences will be packed together, so the actual sequence length can be up to twice of `max_length`.
+For PPO, `max_new_tokens` is used to truncate generations.
+The length of any sequence cannot exceed `sp_size * tp_size * max_length_per_device`.
 
-* `tp_size`: The inference engine will be sharded across `tp_size` GPUs.
-Must be divisible by the total number of GPUs.
-* `gpu_memory_utilization`: The fraction of memory reserved for inference engine.
-* `train_sampling_params`: The sampling parameters for rollout in training.
-At least `temperature` and `max_new_tokens` should be indicated.
-* `max_turns`: The inference engine will generate at most `max_turns` times in a trajectory.
-Default to `1`, where the inference engine will only generate once and no function will be called.
-* `env_path`: The path to the Python script containing function `reward_fn` and `interact` (if `max_turns > 1`).
+### Algorithm
 
-### KL
-
-* `coef`: The coefficient of KL regularization.
-* `type`: If `reward`, the KL estimator will be added into the reward of each action; if `loss`, the KL estimator will be added into the loss of policy gradient.
-Should be set to `loss` for GRPO.
-* `reward_estimator`: The estimator used to compute KL reward.
-When `type=loss`, this will affect the value logged by wandb.
-* `loss_estimator`: The estimator used to compute KL loss.
-Should be set to `k3` for GRPO.
-
-### Adv
-
-* `estimator`: If `gae`, generalized advantage estimator (and hence critic) will be used to estimate advantage; if `reinforce`, normalized reward will be used to estimate advantage.
-We use token-level loss, so the RL algorithm will be [Dr. GRPO](https://arxiv.org/abs/2503.20783) if `norm_var=False`.
-* `gamma`: The discount factor of future rewards.
-Will only be effective when `estimator=gae`.
-* `lamda`: The coefficient to tradeoff variance and bias of generalized advantage estimator.
-Will only be effective when `estimator=gae`.
-* `norm_var`: Whether to divide advantages by the standard error.
-Will only be effective when `estimator=reinforce`.
-Should be set to `True` for GRPO.
-
-### Trainer
-
-* `project`: The name of wandb project.
-* `experiment_name`: The name of wandb experiment.
-* `n_epochs`: The dataset will be iterated through `n_epochs` times.
-* `disable_wandb`: Whether to disable wandb.
+The default RL algorithm is [Dr. GRPO](https://arxiv.org/abs/2503.20783).
+Specify `adv.estimator=gae` to use PPO or `adv.norm_var=true` and `kl.reward_estimator=k3` to use GRPO.
 
 ## Acknowledgement
 

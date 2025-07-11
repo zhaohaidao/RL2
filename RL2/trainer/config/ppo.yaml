@@ -96,7 +96,7 @@ critic:
     dropout: 0
 
 adv:
-  estimator: null # `reinforce` or `gae`
+  estimator: reinforce # `reinforce` or `gae`
   gamma: 1.0
   lamda: 1.0
   norm_var: false
