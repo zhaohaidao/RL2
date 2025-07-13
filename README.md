@@ -71,7 +71,7 @@ For PPO
 ```
 
 For SFT, RM, and DPO, `batch_size` samples will be used for an update.
-For PPO, `prompts_per_rollout` prompts will be used per rollout and `responses_per_prompt` trajectories will be sampled for a prompt.
+For PPO, `prompts_per_rollout` prompts will be used per rollout and `responses_per_prompt` trajectories will be sampled per prompt.
 These trajectories will be evenly used for `update_per_rollout` updates.
 
 ### Rewards
@@ -103,6 +103,7 @@ def interact(messages):
         for result in results
     ]
 ```
+For base models, you may specify `rollout.apply_chat_template=false` so that the content in messages will be simply concatenated without applying chat template.
 
 ### Training
 
